@@ -50,7 +50,18 @@
 
     <aside class="panel" id="panel">
       <div class="panel-list" id="list-view">
-        <h2>Where to go first</h2>
+        <section class="agent-box" aria-labelledby="agent-h">
+          <div class="agent-head">
+            <h2 id="agent-h">Coordinator</h2>
+            <button id="run-agent" class="run-btn" type="button">Analyse situation</button>
+          </div>
+          <p class="small muted" id="agent-status">Groups the photos into zones, checks the priorities, asks you to verify what is uncertain and writes a briefing.</p>
+          <div id="review-requests"></div>
+          <div id="zones"></div>
+          <div id="briefing"></div>
+          <details class="agent-log" id="agent-log-wrap" hidden><summary>What the coordinator did</summary><ol id="agent-log"></ol></details>
+        </section>
+        <h2>Photos by priority</h2>
         <p class="muted small">Priority is computed from the findings with a fixed rule. Click a row for the evidence.</p>
         <div id="check-list"></div>
         <ol class="rank" id="rank"></ol>

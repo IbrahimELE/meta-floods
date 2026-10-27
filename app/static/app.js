@@ -21,7 +21,9 @@
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
+  const zoneLayer = L.layerGroup().addTo(map);
   const layer = L.layerGroup().addTo(map);
+  const PRIO_COLOR = { 5: "#c8102e", 4: "#e8590c", 3: "#e0a800", 2: "#2b8a3e", 1: "#7b8a97" };
 
   const prioClass = (img) => (img.priority ? `p${img.priority}` : "unassessed");
 
@@ -41,6 +43,13 @@
 
   function renderMap() {
     layer.clearLayers();
+    zoneLayer.clearLayers();
+    for (const z of state.zones || []) {
+      if (!z.center) continue;
+      const color = z.priority ? PRIO_COLOR[z.priority] : "#6741d9";
+      L.circle(z.center, { radius: Math.max(z.radius_m, 200), color, weight: 2, fillColor: color, fillOpacity: 0.08, interactive: false }).addTo(zoneLayer);
+      // zone circle only; zone names are in the panel
+    }
     const pts = [];
     for (const img of state.images.values()) {
       if (!img.published || !img.location) continue;
@@ -234,6 +243,80 @@
     renderMap();
   }
 
+  // ------------------------------------------------------------------ coordinator (agent)
+  function renderZones() {
+    const zones = state.zones || [];
+    if (!zones.length) { $("zones").innerHTML = ""; return; }
+    $("zones").innerHTML = `<h3>Zones</h3>` + zones.map((z) => {
+      const imgs = z.image_ids.map((id) => state.images.get(id)).filter(Boolean);
+      const dmg = imgs.reduce((n, i) => n + (i.summary?.damage?.destroyed || 0) + (i.summary?.damage?.major || 0), 0);
+      const delta = z.agent_delta ? `<div class="agent-delta">Coordinator ${z.agent_delta > 0 ? "raised" : "lowered"} by 1: ${esc(z.agent_reason)}</div>`
+        : z.agent_delta_status ? `<div class="agent-delta expired">Coordinator correction ${esc(z.agent_delta_status)}</div>` : "";
+      const opts = ["", 5, 4, 3, 2, 1].map((p) => `<option value="${p}" ${z.human_priority === p || (p === "" && !z.human_priority) ? "selected" : ""}>${p === "" ? "rule" : "set " + p}</option>`).join("");
+      return `<div class="zone ${z.status}">
+        <span class="prio ${z.priority ? "p" + z.priority : "unassessed"}" style="width:30px;height:30px;border-radius:6px 6px 6px 0;display:grid;place-items:center;color:#fff;font:700 17px var(--font-ui)">${z.priority ?? "?"}</span>
+        <div><div class="title">${esc(z.label)}</div>
+          <div class="why">${imgs.length} photo${imgs.length === 1 ? "" : "s"}, ${dmg} buildings with major damage or destroyed${z.confirmed_blockage ? ", confirmed road blockage" : ""}</div>
+          <div class="why">rule: ${z.base_priority ?? "not assessed"}${z.human_priority ? ` · set by you: ${z.human_priority} (locked)` : ""}</div>${delta}</div>
+        <label class="small"><span class="muted">Priority</span><br><select data-zone="${z.id}" aria-label="Set priority for ${esc(z.label)}">${opts}</select></label>
+      </div>`;
+    }).join("");
+    for (const sel of document.querySelectorAll("select[data-zone]")) {
+      sel.onchange = async () => {
+        await api(`/api/zones/${sel.dataset.zone}/priority`, { method: "POST", body: JSON.stringify({ priority: sel.value ? Number(sel.value) : null }) });
+        refresh();
+      };
+    }
+  }
+
+  let agentBusy = false;
+  async function loadAgent() {
+    if (!state.incident) return;
+    const a = await api(`/api/incidents/${state.incident.id}/agent`);
+    if (!a) return;
+    agentBusy = a.run?.status === "running";
+    $("run-agent").disabled = agentBusy;
+    $("run-agent").textContent = agentBusy ? "Working…" : a.run ? "Analyse again" : "Analyse situation";
+    if (a.run) {
+      const st = { running: "is working", done: "finished", incomplete: "stopped at its step limit – partial result", failed: "failed: " + (a.run.error || "") }[a.run.status];
+      $("agent-status").textContent = `Coordinator ${st} · ${a.run.steps} steps · ${a.run.started_at.replace("T", " ").slice(0, 16)} UTC`;
+    }
+    $("review-requests").innerHTML = a.review_requests.length ? `<h3>Please check (${a.review_requests.length})</h3>` +
+      a.review_requests.map((r) => {
+        const ids = JSON.parse(r.target_ids_json);
+        const links = r.target_type === "image" ? ids.map((id) => `<a data-open="${id}">${esc(state.images.get(id)?.original_name || id)}</a>`).join(", ") : `${r.target_type} ${ids.join(", ")}`;
+        return `<div class="req">${esc(r.question)}<div class="small">${links}</div><button class="ghost" type="button" data-resolve="${r.id}">Done</button></div>`;
+      }).join("") : "";
+    for (const el of document.querySelectorAll("[data-open]")) el.onclick = () => openDetail(el.dataset.open);
+    for (const el of document.querySelectorAll("[data-resolve]")) el.onclick = async () => { await api(`/api/review-requests/${el.dataset.resolve}/resolve`, { method: "POST" }); loadAgent(); };
+
+    const lang = state.briefLang || "en";
+    const b = a.briefings.find((x) => x.language === lang) || a.briefings[0];
+    $("briefing").innerHTML = b ? `<div class="briefing">
+        <div class="toggle" role="group" aria-label="Briefing language">${a.briefings.map((x) => `<button type="button" data-lang="${x.language}" aria-pressed="${x.language === b.language}">${x.language === "bs" ? "Bosanski" : "English"}</button>`).join("")}</div>
+        <h3>${esc(b.headline)}</h3>${b.stale ? `<div class="stale">The situation changed since this briefing – run the coordinator again.</div>` : ""}
+        <pre>${esc(b.body)}</pre></div>` : "";
+    for (const el of document.querySelectorAll("[data-lang]")) el.onclick = () => { state.briefLang = el.dataset.lang; loadAgent(); };
+
+    $("agent-log-wrap").hidden = !a.actions.length;
+    $("agent-log").innerHTML = a.actions.map((x) => {
+      const args = JSON.parse(x.args_json || "{}");
+      const what = { get_situation: "Read the situation", cluster_zones: `Grouped photos into zones (${args.radius_m} m)`,
+        adjust_zone_priority: `Zone ${args.zone_id}: priority ${args.delta > 0 ? "+" : ""}${args.delta} – ${args.reason || ""}`,
+        request_human_review: `Asked you to check: ${args.question || ""}`, flag_possible_duplicate: `Possible duplicate photos: ${args.reason || ""}`,
+        write_briefing: `Wrote the ${args.language === "bs" ? "Bosnian" : "English"} briefing` }[x.tool] || x.tool;
+      return `<li class="${x.result.startsWith("rejected") ? "rejected" : ""}">${esc(what)}${x.result.startsWith("rejected") ? ` – <b>refused by the server</b>: ${esc(x.result.slice(10))}` : ""}</li>`;
+    }).join("");
+  }
+
+  $("run-agent").onclick = async () => {
+    if (!state.incident || agentBusy) return;
+    $("run-agent").disabled = true;
+    const r = await api(`/api/incidents/${state.incident.id}/agent/run`, { method: "POST" });
+    if (r) { agentBusy = true; $("run-agent").textContent = "Working…"; }
+    else $("run-agent").disabled = false;
+  };
+
   // ------------------------------------------------------------------ data
   async function api(url, opts = {}) {
     const res = await fetch(url, { headers: opts.body instanceof FormData ? {} : { "content-type": "application/json" }, credentials: "same-origin", ...opts });
@@ -251,7 +334,10 @@
     if (!snap) return;
     state.incident = snap.incident;
     state.images = new Map(snap.images.map((i) => [i.id, i]));
+    state.zones = snap.zones || [];
     renderMap();
+    renderZones();
+    loadAgent();
     renderList();
     renderTray();
     if (state.selected && !$("detail-view").hidden) openDetail(state.selected);
@@ -261,7 +347,8 @@
   function listen(after) {
     if (state.events) state.events.close();
     const es = new EventSource(`/api/incidents/${state.incident.id}/events?after=${after}`);
-    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed"]) es.addEventListener(t, refreshSoon);
+    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated",
+      "agent_started", "agent_action", "agent_finished", "briefing_written", "review_requested", "review_resolved"]) es.addEventListener(t, refreshSoon);
     state.events = es; // EventSource reconnects by itself and sends Last-Event-ID
   }
 

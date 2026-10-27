@@ -109,6 +109,63 @@ CREATE TABLE IF NOT EXISTS budget (
     api_calls_reserved INTEGER NOT NULL DEFAULT 0,
     agent_runs_reserved INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL REFERENCES incidents(id),
+    revision INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
+    locked INTEGER NOT NULL DEFAULT 0,             -- human lock freezes membership (PLAN 7.3)
+    human_priority INTEGER,
+    agent_delta INTEGER NOT NULL DEFAULT 0,        -- -1 | 0 | +1, valid only for agent_revision
+    agent_revision INTEGER,
+    agent_reason TEXT,
+    agent_evidence_json TEXT,
+    label TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS zone_members (
+    zone_id INTEGER NOT NULL REFERENCES zones(id),
+    image_id TEXT NOT NULL REFERENCES images(id),
+    PRIMARY KEY (zone_id, image_id)
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL,
+    status TEXT NOT NULL,                          -- running | done | incomplete | failed
+    steps INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES agent_runs(id),
+    tool TEXT NOT NULL,
+    args_json TEXT NOT NULL,
+    result TEXT NOT NULL,                          -- applied | rejected:<reason> | read
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS review_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL,
+    kind TEXT NOT NULL,                            -- check | duplicate
+    target_type TEXT NOT NULL,                     -- image | finding | zone
+    target_ids_json TEXT NOT NULL,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',           -- open | resolved
+    run_id INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS briefings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL,
+    language TEXT NOT NULL,
+    headline TEXT NOT NULL,
+    body TEXT NOT NULL,
+    state_hash TEXT NOT NULL,
+    run_id INTEGER,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_images_incident ON images(incident_id);
 CREATE INDEX IF NOT EXISTS idx_events_incident ON events(incident_id, seq);
 """

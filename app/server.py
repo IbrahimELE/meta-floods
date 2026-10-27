@@ -21,9 +21,11 @@ from pydantic import BaseModel, Field
 
 from .api import ModelApi
 from .config import Settings, settings
-from .db import BudgetExceeded, Database, image_public, now_iso
+from .db import BudgetExceeded, Database, now_iso
 from .pipeline import Pipeline, RejectedImage
-from .priority import age_status, image_points, to_priority
+from .agent import Agent, meta_caller
+from .state import describe_image, incident_images, state_hash, zones_view
+from .zones import ToolRejected, resolve_review, set_human_priority
 
 STATIC = Path(__file__).parent / "static"
 MAX_FILES = {"dev": 50, "sandbox": 5}
@@ -77,8 +79,13 @@ class ReviewIn(BaseModel):
     action: str = Field(pattern="^(confirm|reject)$")
 
 
+class ZonePriorityIn(BaseModel):
+    priority: int | None = Field(default=None, ge=1, le=5)
+
+
 # ----------------------------------------------------------------------------- app
-def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow_dev: bool | None = None) -> FastAPI:
+def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow_dev: bool | None = None,
+               agent_factory=None) -> FastAPI:
     if pipe is None:
         db = Database(settings.db_path)
         api = ModelApi(settings, os.environ.get("MODEL_API_KEY"), os.environ.get("BASETEN_API_KEY"))
@@ -98,6 +105,7 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
 
     app = FastAPI(title="FirstHour", lifespan=lifespan)
     app.state.pipe, app.state.worker = pipe, worker
+    app.state.agent_tasks = set()
 
     # ------------------------------------------------------------------ access control
     def incident_for(incident_id: str, request: Request, write: bool) -> Any:
@@ -177,7 +185,7 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
     def image_detail(image_id: str, request: Request) -> dict:
         row = image_for(image_id, request, write=False)
         inc = db.one("SELECT * FROM incidents WHERE id = ?", (row["incident_id"],))
-        return describe_image(row, inc, detail=True)
+        return describe_image(db, row, inc, detail=True)
 
     @app.post("/api/images/{image_id}/pin")
     def pin(image_id: str, body: PinIn, request: Request) -> dict:
@@ -199,64 +207,74 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
         return {"ok": True}
 
     # ------------------------------------------------------------------ map state
-    def location_of(image_id: str) -> dict | None:
-        rows = db.query("SELECT * FROM locations WHERE image_id = ? ORDER BY id DESC", (image_id,))
-        for kind in ("human_pin", "camera_exif", "ai_scene_estimate"):
-            for r in rows:
-                if r["kind"] == kind:
-                    return {"lat": r["lat"], "lon": r["lon"], "kind": kind, "uncertainty_m": r["uncertainty_m"],
-                            "confirmed": bool(r["confirmed_by_human"]), "note": r["source_detail"]}
-        return None
-
-    def findings_of(image_id: str) -> list[dict]:
-        rejected = {r["target_id"] for r in db.query(
-            """SELECT target_id FROM reviews r1 WHERE target_type = 'finding' AND action = 'reject'
-               AND id = (SELECT MAX(id) FROM reviews r2 WHERE r2.target_type = 'finding' AND r2.target_id = r1.target_id)""")}
-        confirmed = {r["target_id"] for r in db.query(
-            """SELECT target_id FROM reviews r1 WHERE target_type = 'finding' AND action = 'confirm'
-               AND id = (SELECT MAX(id) FROM reviews r2 WHERE r2.target_type = 'finding' AND r2.target_id = r1.target_id)""")}
-        out = []
-        for f in db.query("""SELECT f.*, o.n, o.concept, o.box_json, o.flood_overlap FROM findings f
-                             LEFT JOIN objects o ON o.id = f.object_id WHERE f.image_id = ? ORDER BY o.n""", (image_id,)):
-            d = dict(f)
-            d["rejected"] = str(f["id"]) in rejected
-            d["confirmed"] = str(f["id"]) in confirmed
-            out.append(d)
-        return out
-
-    def describe_image(row: Any, inc: Any, detail: bool = False) -> dict:
-        d = image_public(row)
-        d["location"] = location_of(row["id"])
-        d["age"] = age_status(row["captured_at"], inc["as_of"])
-        scene = json.loads(row["scene_json"]) if row["scene_json"] else None
-        d["scene"] = scene
-        findings = findings_of(row["id"]) if row["processing_state"] == "done" else []
-        score = image_points(findings, scene, d["age"]) if findings else {"points": None, "assessable": False, "parts": []}
-        d["points"], d["assessable"], d["points_parts"] = score["points"], score["assessable"], score["parts"]
-        d["priority"] = to_priority(score["points"])
-        objs = [f for f in findings if f["object_id"] and not f["rejected"]]
-        d["summary"] = {
-            "objects": len(objs),
-            "damage": {k: sum(1 for f in objs if f["damage"] == k) for k in ("destroyed", "major", "minor", "no_damage", "unknown")},
-            "roads_blocked": sum(1 for f in objs if f["passability"] == "impassable"),
-            "roads_caution": sum(1 for f in objs if f["passability"] == "caution"),
-        }
-        if detail:
-            d["findings"] = findings
-            labels = db.one("SELECT labels_json FROM image_labels WHERE image_id = ?", (row["id"],))
-            d["image_labels"] = json.loads(labels["labels_json"]) if labels else None
-        return d
-
     @app.get("/api/incidents/{incident_id}/snapshot")
     def snapshot(incident_id: str, request: Request) -> dict:
         inc = incident_for(incident_id, request, write=False)
         last = db.one("SELECT COALESCE(MAX(seq), 0) s FROM events WHERE incident_id = ?", (incident_id,))["s"]
-        rows = db.query("SELECT * FROM images WHERE incident_id = ? ORDER BY uploaded_at", (incident_id,))
+        _, images = incident_images(db, incident_id)
         return {
             "incident": {k: inc[k] for k in ("id", "name", "region_text", "mode", "as_of")},
             "last_seq": last,
-            "images": [describe_image(r, inc) for r in rows],
+            "images": images,
+            "zones": zones_view(db, incident_id, images),
         }
+
+    # ------------------------------------------------------------------ agent + zones
+    def make_agent() -> Agent:
+        if agent_factory:
+            return agent_factory(db)
+        if pipe.api.meta is None:
+            raise HTTPException(503, "MODEL_API_KEY is not configured")
+        return Agent(db, meta_caller(pipe.api.meta, pipe.s.meta_assess_model))
+
+    @app.post("/api/incidents/{incident_id}/agent/run")
+    async def run_agent(incident_id: str, request: Request) -> dict:
+        incident_for(incident_id, request, write=True)
+        if db.one("SELECT id FROM agent_runs WHERE incident_id = ? AND status = 'running'", (incident_id,)):
+            raise HTTPException(409, "the agent is already working on this incident")
+        try:
+            db.reserve("agent_run", pipe.s.budget_agent_runs)
+        except BudgetExceeded as exc:
+            raise HTTPException(429, str(exc))
+        agent = make_agent()
+        app.state.agent_tasks.add(asyncio.create_task(asyncio.to_thread(agent.run, incident_id)))
+        return {"started": True}
+
+    @app.get("/api/incidents/{incident_id}/agent")
+    def agent_state(incident_id: str, request: Request) -> dict:
+        incident_for(incident_id, request, write=False)
+        run = db.one("SELECT * FROM agent_runs WHERE incident_id = ? ORDER BY id DESC LIMIT 1", (incident_id,))
+        actions = [dict(a) for a in db.query("SELECT * FROM agent_actions WHERE run_id = ? ORDER BY id", (run["id"],))] if run else []
+        current = state_hash(zones_view(db, incident_id))
+        briefings = []
+        for lang in ("en", "bs"):
+            b = db.one("SELECT * FROM briefings WHERE incident_id = ? AND language = ? ORDER BY id DESC LIMIT 1", (incident_id, lang))
+            if b:
+                briefings.append({**dict(b), "stale": b["state_hash"] != current})
+        requests_ = [dict(r) for r in db.query(
+            "SELECT * FROM review_requests WHERE incident_id = ? AND status = 'open' ORDER BY id", (incident_id,))]
+        return {"run": dict(run) if run else None, "actions": actions, "briefings": briefings, "review_requests": requests_}
+
+    @app.post("/api/zones/{zone_id}/priority")
+    def zone_priority(zone_id: int, body: ZonePriorityIn, request: Request) -> dict:
+        z = db.one("SELECT * FROM zones WHERE id = ?", (zone_id,))
+        if z is None:
+            raise HTTPException(404, "zone not found")
+        incident_for(z["incident_id"], request, write=True)
+        try:
+            set_human_priority(db, z["incident_id"], zone_id, body.priority)
+        except ToolRejected as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True}
+
+    @app.post("/api/review-requests/{request_id}/resolve")
+    def resolve(request_id: int, request: Request) -> dict:
+        r = db.one("SELECT * FROM review_requests WHERE id = ?", (request_id,))
+        if r is None:
+            raise HTTPException(404, "review request not found")
+        incident_for(r["incident_id"], request, write=True)
+        resolve_review(db, r["incident_id"], request_id)
+        return {"ok": True}
 
     @app.get("/api/incidents/{incident_id}/events")
     async def events(incident_id: str, request: Request, after: int = 0) -> StreamingResponse:
