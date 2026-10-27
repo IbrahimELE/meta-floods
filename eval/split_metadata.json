@@ -1,0 +1,58 @@
+{
+  "seed": 42,
+  "version": "v2",
+  "val": {
+    "source_url": "https://ladi.s3.us-west-2.amazonaws.com/Labels/v2/ladi_v2_labels_val.csv",
+    "sha256": "9da34d2bd22fe1c275af0b2250b8f0f9ce844b9679a92560eb49c75576504219",
+    "raw_rows": 893,
+    "unique_urls": 893
+  },
+  "test": {
+    "source_url": "https://ladi.s3.us-west-2.amazonaws.com/Labels/v2/ladi_v2_labels_test.csv",
+    "sha256": "b8ef9e24744a182d036c4b01b12f401651b15ad251c23f6fa9278e3c4e6f2119",
+    "raw_rows": 1163,
+    "unique_urls": 1049
+  },
+  "excluded_flights": [
+    "/Images/CAP_-_AR_Storms_APR_2023/Source/23-1-4871/A0005",
+    "/Images/CAP_-_AR_Storms_APR_2023/Source/23-1-4871/A0007",
+    "/Images/CAP_-_CA_Storms_Jan_2023/Source/23-1-4383/A0020_Nikon",
+    "/Images/CAP_-_CA_Storms_Jan_2023/Source/23-1-4383/A0046_NIKON",
+    "/Images/CAP_-_CA_Storms_Jan_2023/Source/23-1-4383/A0049",
+    "/Images/CAP_-_VT_Flooding_Jul_2023/Source/23-1-5464/A0001_AerialOblique",
+    "/Images/CAP_-_VT_Flooding_Jul_2023/Source/23-1-5464/A0002_AerialOblique",
+    "/Images/CAP_-_VT_Flooding_Jul_2023/Source/23-1-5464/A0003_AerialNadir",
+    "/Images/CAP_-_VT_Flooding_Jul_2023/Source/23-1-5464/A0015_AerialOblique",
+    "/Images/CAP_-_VT_Flooding_Jul_2023/Source/23-1-5464/A0019_AerialNadir"
+  ],
+  "eligible_test_urls": 928,
+  "eligible_flooding": {
+    "0": 900,
+    "1": 28
+  },
+  "test_flooding": {
+    "0": 81,
+    "1": 19
+  },
+  "sampling": "enriched: >=15 positives per class where available, then random fill (seed 42); prevalence is not natural",
+  "test_positives": {
+    "flooding_any": 19,
+    "flooding_structures": 4,
+    "buildings_major_or_greater": 8,
+    "roads_damage": 6,
+    "debris_any": 15,
+    "buildings_affected_or_greater": 15
+  },
+  "eligible_positives": {
+    "flooding_any": 28,
+    "flooding_structures": 4,
+    "buildings_major_or_greater": 8,
+    "roads_damage": 6,
+    "debris_any": 17,
+    "buildings_affected_or_greater": 24
+  },
+  "tuning_count": 40,
+  "test_count": 100,
+  "flight_definition": "full event/mission path through A00xx folder",
+  "attribution": "LADI v2, MIT Lincoln Laboratory / Civil Air Patrol, CC BY 4.0"
+}
