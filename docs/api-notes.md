@@ -95,3 +95,24 @@ structured-output, tool-calling, reasoning, pricing-rate-limits).
 - No identifying people / facial recognition → only "people visible / may need help".
 - Don't present outputs as human-generated; keep Meta provenance labels.
 - No military/war use cases.
+
+## Learned while building (Oct 27)
+
+- **Agent:** `previous_response_id` can fail with "referenced response not found or expired" → resend
+  the full input history each turn (that is what `app/agent.py` does).
+- **web_search + JSON:** `output_text` also contains commentary messages → parse the last message only.
+- **SAM video** (`input_video`: `video_url` URL/data URL or `file_id`): MP4/MOV, H.264/H.265/MPEG-4 only
+  (no WebM/VP9), ≤ 15,000 frames, **≤ 16 tracked objects per frame**, frames streamed in order for concept
+  prompts. A 100-frame 1280×720 clip takes 8–12 s per concept. Object ids are strings.
+- **SAM parser speed:** it decodes every mask to validate it and drops the raster; cache that decode and
+  reuse it (masks decoded once → E3 batch 150 s → 96 s). For box-only indexing, skip validation.
+- **Muse Voice Transcribe:** `POST /v1/asr/transcribe`, multipart `request` (JSON) + `audio` (WAV, mono
+  16-bit PCM at 16/24 kHz, ≤ 10 min, body ≤ 32 MB). `request` needs `model: "muse-voice-transcribe-1.0"`,
+  **`audioEncoding: "WAV"` (required)**, optional `mode` (PUSH_TO_TALK / ENDPOINTING / DIARIZATION),
+  `keywords` (bias toward names), `languageBias`. Response `{transcript, turns, audioDurationMs}`.
+  25 languages; Bosnian/Croatian/Serbian not listed. ~3 s for a 13 s clip.
+- **Muse Spark Open on Baseten:** `response_format` json_schema gave poor output (fields filled with the
+  schema's descriptions, enums violated); `{"type": "json_object"}` + keys spelled out in the system
+  prompt works well (3–7 s).
+- **Wikimedia Commons** rate-limits this cloud container (429, retry-after 600) → download on the user's
+  computer and stage the files.
