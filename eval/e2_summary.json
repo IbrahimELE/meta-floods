@@ -1,0 +1,46 @@
+{
+  "attempts": 40,
+  "coordinate_answers": 5,
+  "coverage_percent": 12.5,
+  "model": {
+    "median_km": 5.007443974293538,
+    "p90_km": 20.81404726342611,
+    "within_1km_percent": 0.0,
+    "within_5km_percent": 5.0
+  },
+  "baseline": {
+    "median_km": 124.7207157340604,
+    "p90_km": 205.6652059794525,
+    "within_1km_percent": 0.0,
+    "within_5km_percent": 0.0
+  },
+  "web_assisted": true,
+  "denominator": "All attempts including refusals, malformed output and API failures; distance quantiles use coordinate answers only.",
+  "selection_eligible": 100,
+  "cost": {
+    "estimated_or_reserved_usd": 3.14757,
+    "by_kind": {
+      "e1_meta": {
+        "calls": 70,
+        "usd": 1.06368525,
+        "uncertain_calls": 0
+      },
+      "e2_meta": {
+        "calls": 40,
+        "usd": 1.18388475,
+        "uncertain_calls": 0
+      },
+      "sam": {
+        "calls": 360,
+        "usd": 0.9,
+        "uncertain_calls": 0
+      }
+    },
+    "limit_usd": 9,
+    "note": "Estimate from usage, not provider invoice; unresolved calls retain conservative reservations."
+  },
+  "decision": "keep_disabled",
+  "FH_AI_LOCATE": 0,
+  "provisional": false,
+  "note": "State-level event priors; Idalia uses a multi-state event prior. Baselines are fixed approximate geographic centers, not fitted to sample GPS. No app/.env settings modified."
+}
