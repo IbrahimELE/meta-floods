@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from dataclasses import replace
 
@@ -146,3 +147,54 @@ def test_t4_blockages_are_human_only_and_raise_zone(server):
     other = client.post("/api/incidents", json={"name": "other"}).json()["id"]
     f = pipe.db.one("SELECT id FROM findings WHERE image_id = ?", (image_id,))["id"]
     assert client.post(f"/api/incidents/{other}/blockages", json={"a": [1, 1], "b": [1, 2], "finding_id": f}).status_code == 400
+
+
+def _wav(seconds=1.0, rate=24000):
+    import io, wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(b"\x00\x00" * int(seconds * rate))
+    return buf.getvalue()
+
+
+def test_voice_report_flow(server, monkeypatch):
+    import app.voice as voice
+    client, pipe = server
+    monkeypatch.setattr(voice, "transcribe", lambda key, wav, keywords=None, timeout=90: {"transcript": "The bridge at the school is gone, two people on a roof need help."})
+    monkeypatch.setattr(voice, "extract", lambda s, m, b, t: ({"summary": "Bridge destroyed; two people on a roof need help.",
+                                                                "road_status": "blocked", "people_need_help": True,
+                                                                "hazards": ["fast_current"], "place_mentioned": "school"}, "fake-open"))
+    inc = client.post("/api/incidents", json={"name": "t"}).json()["id"]
+    bad = client.post(f"/api/incidents/{inc}/voice", data={"lat": 43.6, "lon": 17.9}, files={"audio": ("r.wav", b"nope", "audio/wav")})
+    assert bad.status_code == 400
+    stereo = client.post(f"/api/incidents/{inc}/voice", data={"lat": 43.6, "lon": 17.9},
+                         files={"audio": ("r.wav", _wav(rate=44100), "audio/wav")})
+    assert stereo.status_code == 400
+    ok = client.post(f"/api/incidents/{inc}/voice", data={"lat": 43.6, "lon": 17.9}, files={"audio": ("r.wav", _wav(), "audio/wav")})
+    assert ok.status_code == 200
+    import time
+    for _ in range(50):
+        reps = client.get(f"/api/incidents/{inc}/snapshot").json()["reports"]
+        if reps and reps[0]["status"] != "processing":
+            break
+        time.sleep(0.05)
+    assert reps[0]["status"] == "done", reps[0]["error"]
+    assert "roof" in reps[0]["transcript"]
+    assert json.loads(reps[0]["report_json"])["road_status"] == "blocked"
+
+
+def test_voice_reports_raise_zone(server, monkeypatch):
+    from app.zones import cluster
+    client, pipe = server
+    inc = client.post("/api/incidents", json={"name": "t"}).json()["id"]
+    image_id = client.post(f"/api/incidents/{inc}/images", files=[("files", ("a.jpg", jpeg(gps=None), "image/jpeg"))]).json()["results"][0]["image_id"]
+    process(pipe)
+    client.post(f"/api/images/{image_id}/pin", json={"lat": 43.65, "lon": 17.96})
+    cluster(pipe.db, inc, 500)
+    with pipe.db.tx() as c:
+        c.execute("""INSERT INTO field_reports (incident_id, lat, lon, status, transcript, report_json, model, created_at)
+                     VALUES (?, 43.6502, 17.9601, 'done', 'x', ?, 'm', 'now')""",
+                  (inc, json.dumps({"summary": "s", "road_status": "blocked", "people_need_help": True, "hazards": [], "place_mentioned": ""})))
+    z = client.get(f"/api/incidents/{inc}/snapshot").json()["zones"][0]
+    assert z["confirmed_blockage"] is True and z["base_points"] >= 4

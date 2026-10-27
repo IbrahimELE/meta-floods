@@ -55,6 +55,10 @@
       L.circle(z.center, { radius: Math.max(z.radius_m, 200), color, weight: 2, fillColor: color, fillOpacity: 0.08, interactive: false }).addTo(zoneLayer);
       // zone circle only; zone names are in the panel
     }
+    for (const r of state.reports || []) {
+      const icon = L.divIcon({ className: "", html: `<div class="voice-pin ${r.status}" title="Voice report">🎙</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
+      L.marker([r.lat, r.lon], { icon, keyboard: true, title: "Voice report" }).bindPopup(reportHtml(r), { maxWidth: 300 }).addTo(layer);
+    }
     const pts = [];
     for (const b of state.blockages || []) {
       const line = L.polyline([[b.a_lat, b.a_lon], [b.b_lat, b.b_lon]], { color: "#c8102e", weight: 9, opacity: .9 }).addTo(layer);
@@ -144,7 +148,13 @@
   // ------------------------------------------------------------------ tray (needs a location)
   function renderTray() {
     const need = [...state.images.values()].filter((i) => i.location_state === "needs_pin");
-    $("tray").hidden = need.length === 0;
+    if ($("tray").hidden !== (need.length === 0)) {
+      // the tray changes the map's height: resize and refit, or markers end up under the tray
+      $("tray").hidden = need.length === 0;
+      map.invalidateSize();
+      state.fittedCount = -1;
+      renderMap();
+    }
     $("tray-count").textContent = need.length ? `(${need.length}) – pick a photo, then click the map` : "";
     $("tray-items").innerHTML = need.map((i) => `
       <button type="button" class="tray-item ${state.pinTarget === i.id ? "active" : ""}" data-id="${i.id}">
@@ -187,7 +197,7 @@
     v.hidden = false;
     const loc = d.location;
     const locText = !loc ? "unknown – place it on the map"
-      : loc.kind === "human_pin" ? `pinned by a responder (±${loc.uncertainty_m} m)`
+      : loc.kind === "human_pin" ? (loc.note && loc.note !== "placed by responder" ? `${loc.note} (±${loc.uncertainty_m} m)` : `pinned by a responder (±${loc.uncertainty_m} m)`)
       : loc.kind === "camera_exif" ? `camera GPS (±${loc.uncertainty_m} m – objects can be further away)`
       : `AI suggestion (±${loc.uncertainty_m} m) – verify`;
     const sc = d.scene || {};
@@ -203,6 +213,7 @@
         <button type="button" data-view="photo" aria-pressed="false">Original</button>
       </div>
       <div class="photo-box"><img id="detail-img" src="/api/images/${d.id}/${d.segmentation_state === "pending" ? "photo" : "overlay"}" alt="Photo ${esc(d.original_name)}"></div>
+      ${d.credit ? `<p class="credit">Photo: ${esc(d.credit)}</p>` : ""}
       ${d.processing_state !== "done" ? `<p class="ai-note">Status: ${esc(d.processing_state)} ${esc(d.stage || "")} ${esc(d.last_error || "")}</p>` : ""}
       <div class="score">
         <span class="big">${d.priority ?? "not assessed"}</span>${d.priority ? "priority (1–5)" : ""}
@@ -267,15 +278,122 @@
     state.tool = state.tool === tool ? null : tool;
     $("tool-route").setAttribute("aria-pressed", String(state.tool === "route"));
     $("tool-block").setAttribute("aria-pressed", String(state.tool === "block"));
+    $("tool-voice").setAttribute("aria-pressed", String(state.tool === "voice"));
+    stopRecorder();
     $("drop-zone").classList.toggle("pinning", !!state.tool);
     state.routePts = [];
     routeLayer.clearLayers();
     routeBox(state.tool === "route" ? "<h4>Plan a route</h4>Click the start (e.g. your base), then the destination."
-      : state.tool === "block" ? "<h4>Mark a blocked road</h4>Click on the road that is blocked. Only roads you confirm here change routes." : "");
+      : state.tool === "block" ? "<h4>Mark a blocked road</h4>Click on the road that is blocked. Only roads you confirm here change routes."
+      : state.tool === "voice" ? "<h4>Voice report</h4>Click the map where you are (or what you report on). Then record a short message in English." : "");
   }
   $("tool-route").onclick = () => setTool("route");
   $("tool-block").onclick = () => setTool("block");
+  $("tool-voice").onclick = () => setTool("voice");
   function routeBox(html) { $("route-box").innerHTML = html; $("route-box").hidden = !html; }
+
+  // ------------------------------------------------------------------ voice field reports
+  // Muse Voice Transcribe takes mono 16-bit WAV at 16/24 kHz, so the browser converts the recording.
+  async function toWav(blob) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+    ctx.close();
+    const rate = 24000;
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(audio.duration * rate)), rate);
+    const src = off.createBufferSource(); src.buffer = audio; src.connect(off.destination); src.start();
+    const pcm = (await off.startRendering()).getChannelData(0);
+    const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+    const str = (o, t) => [...t].forEach((ch, i) => out.setUint8(o + i, ch.charCodeAt(0)));
+    str(0, "RIFF"); out.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVEfmt ");
+    out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+    out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+    str(36, "data"); out.setUint32(40, pcm.length * 2, true);
+    for (let i = 0; i < pcm.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+    return { wav: new Blob([out], { type: "audio/wav" }), seconds: audio.duration };
+  }
+
+  let recorder = null;
+  function stopRecorder() {
+    if (recorder && recorder.state !== "inactive") { recorder.onstop = null; recorder.stop(); }
+    if (recorder) recorder.stream.getTracks().forEach((t) => t.stop());
+    recorder = null;
+    clearInterval(state.recTimer);
+  }
+
+  async function sendReport(P, blob) {
+    routeBox("<h4>Sending…</h4>Converting the recording.");
+    try {
+      const { wav, seconds } = await toWav(blob);
+      if (seconds > 150) return routeBox("<h4>Too long</h4>Keep reports under 2½ minutes.");
+      const fd = new FormData();
+      fd.append("lat", P[0]); fd.append("lon", P[1]); fd.append("audio", wav, "report.wav");
+      const res = await fetch(`/api/incidents/${state.incident.id}/voice`, { method: "POST", body: fd });
+      if (!res.ok) return routeBox(`<h4>Not sent</h4>${esc((await res.json().catch(() => ({}))).detail || res.statusText)}`);
+      routeBox("<h4>Report sent</h4>Muse Voice Transcribe is transcribing it; the result appears on the map in a few seconds.");
+      setTimeout(() => { if (state.tool === "voice") setTool("voice"); }, 2500);
+      refreshSoon();
+    } catch (err) {
+      routeBox(`<h4>Could not read the recording</h4>${esc(err.message)}`);
+    }
+  }
+
+  function voiceAt(P) {
+    stopRecorder();
+    routeLayer.clearLayers();
+    L.circleMarker(P, { radius: 8, color: "#6741d9", fillOpacity: 1 }).addTo(routeLayer);
+    const canRecord = !!(navigator.mediaDevices && window.MediaRecorder);
+    routeBox(`<h4>Voice report here</h4>Say what you see: road open or blocked, people needing help, hazards. English works best.
+      <div class="actions">${canRecord ? '<button type="button" class="primary" id="rec">● Record</button>' : ""}
+      <label class="file-btn">or upload audio<input type="file" id="rec-file" accept="audio/*" hidden></label>
+      <button type="button" id="rec-cancel">Cancel</button></div><div class="small muted" id="rec-status"></div>`);
+    $("rec-cancel").onclick = () => setTool("voice");
+    $("rec-file").onchange = (ev) => ev.target.files[0] && sendReport(P, ev.target.files[0]);
+    if (!canRecord) return;
+    $("rec").onclick = async () => {
+      if (recorder) { recorder.stop(); return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recorder = new MediaRecorder(stream);
+        const chunks = [];
+        recorder.ondataavailable = (ev) => chunks.push(ev.data);
+        recorder.onstop = () => { const type = recorder.mimeType; stopRecorder(); sendReport(P, new Blob(chunks, { type })); };
+        recorder.start();
+        const t0 = Date.now();
+        $("rec").textContent = "■ Stop and send";
+        state.recTimer = setInterval(() => {
+          const s = Math.round((Date.now() - t0) / 1000);
+          if ($("rec-status")) $("rec-status").textContent = `Recording… ${s} s`;
+          if (s >= 120 && recorder) recorder.stop();
+        }, 500);
+      } catch (err) {
+        $("rec-status").textContent = `Microphone not available: ${err.message}`;
+      }
+    };
+  }
+
+  const ROAD_TEXT = { blocked: "road blocked", caution: "road passable with caution", open: "road open", not_mentioned: "" };
+  function reportHtml(r) {
+    if (r.status === "processing") return `<b>Voice report</b> – transcribing…`;
+    if (r.status === "failed") return `<b>Voice report</b> – failed: ${esc(r.error || "")}`;
+    const rep = JSON.parse(r.report_json || "{}");
+    const tags = [ROAD_TEXT[rep.road_status], rep.people_need_help === true ? "people need help" : rep.people_need_help === false ? "no one needs help" : "",
+      ...(rep.hazards || []).map((h) => h.replaceAll("_", " "))].filter(Boolean);
+    return `<b>Voice report from a responder</b> · ${esc(r.created_at.slice(11, 16))} UTC
+      <div>${esc(rep.summary || "")}</div>
+      ${tags.length ? `<div class="tags">${tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+      <details><summary>Transcript</summary>“${esc(r.transcript || "")}”</details>
+      <div class="small muted">Human observation · transcribed by Muse Voice Transcribe, structured by ${esc(r.model || "")}</div>`;
+  }
+
+  function renderReports() {
+    const reps = state.reports || [];
+    $("reports").innerHTML = reps.length ? `<h3>Voice reports (${reps.length})</h3>` + reps.slice().reverse().map((r) =>
+      `<div class="report ${r.status}" data-lat="${r.lat}" data-lon="${r.lon}">${reportHtml(r)}</div>`).join("") : "";
+    for (const el of $("reports").querySelectorAll(".report")) el.onclick = (ev) => {
+      if (ev.target.closest("details")) return;
+      map.setView([+el.dataset.lat, +el.dataset.lon], Math.max(map.getZoom(), 14));
+    };
+  }
 
   async function graphFor(points) {
     const bbox = FHRoutes.bboxAround(points);
@@ -288,6 +406,7 @@
     if (!state.tool) return;
     const P = [e.latlng.lat, e.latlng.lng];
     try {
+      if (state.tool === "voice") return voiceAt(P);
       if (state.tool === "block") {
         const g = await graphFor([P]);
         const s = FHRoutes.nearestSegment(g, P);
@@ -443,7 +562,9 @@
     state.images = new Map(snap.images.map((i) => [i.id, i]));
     state.zones = snap.zones || [];
     state.blockages = snap.blockages || [];
+    state.reports = snap.reports || [];
     renderMap();
+    renderReports();
     renderZones();
     loadAgent();
     renderList();
@@ -455,7 +576,7 @@
   function listen(after) {
     if (state.events) state.events.close();
     const es = new EventSource(`/api/incidents/${state.incident.id}/events?after=${after}`);
-    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated", "blockage_added", "blockage_removed",
+    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated", "blockage_added", "blockage_removed", "report_updated",
       "agent_started", "agent_action", "agent_finished", "briefing_written", "review_requested", "review_resolved"]) es.addEventListener(t, refreshSoon);
     state.events = es; // EventSource reconnects by itself and sends Last-Event-ID
   }
@@ -476,6 +597,8 @@
     state.incident = snap.incident;
     state.userMoved = false;
     state.fittedCount = 0;
+    const opt = $("incident-select").querySelector(`option[value="${id}"]`);
+    if (opt && snap.incident.mode === "sandbox") opt.textContent = `${snap.incident.name} (your sandbox)`;
     document.body.classList.toggle("readonly", snap.incident.mode === "demo_readonly");
     closeDetail();
     history.replaceState(null, "", `?incident=${id}`);
@@ -500,8 +623,10 @@
     const name = prompt("Name of the incident (e.g. “Jablanica floods”)");
     if (!name) return;
     const region = prompt("Affected region (optional, e.g. “Jablanica, Bosnia and Herzegovina”)") || null;
-    let res = await fetch("/api/incidents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, region }) });
-    if (res.status === 403) res = await fetch("/api/sandbox", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, region }) });
+    // the public deployment only allows private sandboxes; a local dev server allows shared incidents
+    const health = await fetch("/api/health").then((r) => r.json()).catch(() => ({}));
+    const res = await fetch(health.allow_dev ? "/api/incidents" : "/api/sandbox",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, region }) });
     if (!res.ok) return banner("Could not create the incident.", "error");
     loadIncidents((await res.json()).id);
   };

@@ -97,6 +97,10 @@ def zones_view(db: Database, incident_id: str, images: list[dict] | None = None)
     out = []
     blocks = [((b["a_lat"] + b["b_lat"]) / 2, (b["a_lon"] + b["b_lon"]) / 2)
               for b in db.query("SELECT * FROM blockages WHERE incident_id = ? AND active = 1", (incident_id,))]
+    reports = []
+    for r in db.query("SELECT * FROM field_reports WHERE incident_id = ? AND status = 'done'", (incident_id,)):
+        rep = json.loads(r["report_json"])
+        reports.append(((r["lat"], r["lon"]), rep))
     for z in db.query("SELECT * FROM zones WHERE incident_id = ? AND active = 1 ORDER BY id", (incident_id,)):
         members = [r["image_id"] for r in db.query("SELECT image_id FROM zone_members WHERE zone_id = ?", (z["id"],))]
         imgs = [by_id[m] for m in members if m in by_id and by_id[m]["published"]]
@@ -106,8 +110,12 @@ def zones_view(db: Database, incident_id: str, images: list[dict] | None = None)
         lons = [i["location"]["lon"] for i in imgs if i["location"]]
         center = (sum(lats) / len(lats), sum(lons) / len(lons)) if lats else None
         radius = (max((haversine_m(center, (a, b)) for a, b in zip(lats, lons)), default=0) + 150) if center else None
+        near = [rep for p, rep in reports if center and haversine_m(center, p) <= max(radius, 500)]
         blocked = any(i["summary"]["roads_blocked_confirmed"] for i in imgs) or bool(
-            center and any(haversine_m(center, p) <= max(radius, 500) for p in blocks))
+            center and any(haversine_m(center, p) <= max(radius, 500) for p in blocks)) or any(
+            rep["road_status"] == "blocked" for rep in near)
+        if any(rep["people_need_help"] for rep in near):       # a responder reported people needing help
+            base_points = max(base_points or 0, 3)
         if base_points is not None and blocked:
             base_points += 1
         base = to_priority(base_points)

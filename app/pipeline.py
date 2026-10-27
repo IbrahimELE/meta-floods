@@ -304,13 +304,15 @@ class Pipeline:
             viewpoint=result["scene"]["viewpoint"])
 
     # ----------------------------------------------------------------- location / map
-    def set_pin(self, image_id: str, lat: float, lon: float) -> None:
-        """Human pin: confirms the location and publishes – never calls a model."""
+    def set_pin(self, image_id: str, lat: float, lon: float, uncertainty_m: float = 50,
+                note: str = "placed by responder") -> None:
+        """Human pin: confirms the location and publishes – never calls a model.
+        Demo builds pass a larger uncertainty and a note when only the town is known."""
         with self.db.tx() as c:
             c.execute(
                 """INSERT INTO locations (image_id, kind, lat, lon, uncertainty_m, source_detail,
                    confirmed_by_human, created_at) VALUES (?,?,?,?,?,?,1,?)""",
-                (image_id, "human_pin", lat, lon, 50, "placed by responder", now_iso()),
+                (image_id, "human_pin", lat, lon, uncertainty_m, note, now_iso()),
             )
             c.execute("INSERT INTO reviews (target_type, target_id, action, value_json, created_at) VALUES (?,?,?,?,?)",
                       ("location", image_id, "confirm", json.dumps({"lat": lat, "lon": lon}), now_iso()))

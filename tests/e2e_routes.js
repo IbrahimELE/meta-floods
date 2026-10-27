@@ -20,7 +20,9 @@ function grid(q) {
     if (u.includes('overpass-api.de')) { overpassCalls++; const body = decodeURIComponent((r.request().postData() || '').slice(5)); return r.fulfill({ contentType: 'application/json', body: JSON.stringify(grid(body)) }); }
     if (u.startsWith(BASE)) return r.continue(); return r.abort();
   });
-  const inc = (await (await p.request.get(BASE + '/api/incidents')).json()).find(i => i.mode === 'dev');
+  // a dev incident on a local server, otherwise a private sandbox (public mode)
+  const inc = (await (await p.request.get(BASE + '/api/incidents')).json()).find(i => i.mode === 'dev')
+    || await (await p.request.post(BASE + '/api/sandbox', { data: { name: 'Route test', region: 'test' } })).json();
   await p.goto(`${BASE}/?incident=${inc.id}`); await p.waitForTimeout(2000);
   await p.evaluate(() => { const m = document.querySelector('#map'); });
   const box = await p.locator('#map').boundingBox(); const cx = box.x + box.width / 2, cy = box.y + box.height / 2;

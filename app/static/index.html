@@ -36,6 +36,7 @@
       <div class="map-tools" role="toolbar" aria-label="Road tools">
         <button type="button" id="tool-route" aria-pressed="false">Plan route</button>
         <button type="button" id="tool-block" class="edit-only" aria-pressed="false">Mark road blocked</button>
+        <button type="button" id="tool-voice" class="edit-only" aria-pressed="false">Voice report</button>
       </div>
       <div class="route-box" id="route-box" hidden></div>
       <div class="pin-hint" id="pin-hint" hidden>
@@ -63,6 +64,7 @@
           <p class="small muted" id="agent-status">Groups the photos into zones, checks the priorities, asks you to verify what is uncertain and writes a briefing.</p>
           <div id="review-requests"></div>
           <div id="zones"></div>
+          <div id="reports"></div>
           <div id="briefing"></div>
           <details class="agent-log" id="agent-log-wrap" hidden><summary>What the coordinator did</summary><ol id="agent-log"></ol></details>
         </section>

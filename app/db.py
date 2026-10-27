@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS images (
     last_error TEXT,
     overlay_path TEXT,
     scene_json TEXT,
+    credit TEXT,                                -- photo author/licence for published demos
     updated_at TEXT NOT NULL,
     UNIQUE (incident_id, sha256)
 );
@@ -179,6 +180,18 @@ CREATE TABLE IF NOT EXISTS blockages (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS field_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL REFERENCES incidents(id),
+    lat REAL NOT NULL, lon REAL NOT NULL,          -- where the responder said they are
+    status TEXT NOT NULL DEFAULT 'processing',     -- processing | done | failed
+    transcript TEXT,
+    report_json TEXT,                              -- structured observation (voice.REPORT_SCHEMA)
+    model TEXT,
+    audio_seconds REAL,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_images_incident ON images(incident_id);
 CREATE INDEX IF NOT EXISTS idx_events_incident ON events(incident_id, seq);
 """
@@ -228,6 +241,8 @@ class Database:
         cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(incidents)")}
         if "access_token_hash" not in cols:
             self._conn.execute("ALTER TABLE incidents ADD COLUMN access_token_hash TEXT")
+        if "credit" not in {r["name"] for r in self._conn.execute("PRAGMA table_info(images)")}:
+            self._conn.execute("ALTER TABLE images ADD COLUMN credit TEXT")
 
     # ---- transactions -------------------------------------------------------------
     @contextmanager
@@ -319,5 +334,5 @@ def image_public(row: sqlite3.Row) -> dict[str, Any]:
     """The image fields the UI needs (no file paths)."""
     keys = ("id", "incident_id", "original_name", "width", "height", "captured_at",
             "camera_lat", "camera_lon", "processing_state", "stage", "location_state",
-            "segmentation_state", "published", "attempts", "last_error")
+            "segmentation_state", "published", "attempts", "last_error", "credit")
     return {k: row[k] for k in keys}

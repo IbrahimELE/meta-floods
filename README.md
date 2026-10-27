@@ -26,6 +26,12 @@ photos ──► SAM 3.1: one request per concept (road, building, house, bridge
        ──► Coordinator agent (Muse Spark 1.3 + 6 validated tools): zones, ±1 corrections with evidence,
            "please check" requests, briefing in English and Bosnian
        ──► live map (SSE): triage-tag markers, uncertainty circles, evidence panel, confirm/reject, pin
+
+responder on the ground ──► voice report at a map point ──► Muse Voice Transcribe ──► Muse Spark Open
+       (Baseten) extracts road status / people needing help / hazards ──► shown as a HUMAN observation,
+       raises the priority of the zone it falls in, and the coordinator agent sees it
+responder ──► marks a road segment blocked (exact OpenStreetMap edge) ──► suggested routes avoid it;
+       AI "impassable" findings near a route are shown as warnings, never as closures
 ```
 
 **Meta models**
@@ -34,7 +40,8 @@ photos ──► SAM 3.1: one request per concept (road, building, house, bridge
 |---|---|
 | `sam-3.1` (Meta Model API) | Segments every building, road, bridge and flood-water area. The numbered masks are what Muse Spark talks about, so every finding points at a concrete pixel region. |
 | `muse-spark-1.3` (Meta Model API) | Per-object damage (xBD scale) and passability, grounded in SAM's numbered masks; the coordinator agent with function tools; bilingual briefing. |
-| Muse Spark Open (Baseten) | Alternative assessment backend (`ASSESS_BACKEND=baseten`), evaluated head-to-head below. |
+| Muse Spark Open (Baseten) | Turns a transcribed voice report into a structured observation (~3 s); also an alternative photo-assessment backend (`ASSESS_BACKEND=baseten`), evaluated head-to-head below. |
+| `muse-voice-transcribe-1.0` (Meta Model API) | Transcribes field reports recorded in the browser, biased toward the incident's place names. |
 
 **What makes it verifiable**
 - The model never sets a priority. The server computes it from the findings with a fixed rule; the agent
@@ -84,12 +91,16 @@ rounds of external review: [`PLAN.md`](PLAN.md).
 - People are only reported as "visible / may need help / cannot tell" – no faces, no identification.
 - Photos are sent to the Meta Model API (and Baseten if selected). While free credits are used, Meta may use
   content for product improvement – use only photos you may share.
+- Muse Voice Transcribe does not list Bosnian/Croatian/Serbian among its 25 languages, so field reports
+  should be spoken in English for now; place names are passed as recognition keywords.
 - Evaluation labels are image-level; per-object damage was spot-checked, not benchmarked.
 - No military use; not a replacement for official damage assessment.
 
 ## Data
 
-LADI v2 (MIT Lincoln Laboratory / Civil Air Patrol), CC BY 4.0 – see [`DATA_SOURCES.md`](DATA_SOURCES.md).
+Demo scenarios: May 2014 floods in Bosnia and Herzegovina (Wikimedia Commons photos by Dalibor Platenik,
+CC BY 3.0, and Commons user "BiH", CC BY-SA 3.0 – credited under each photo) and the July 2022 Kentucky floods
+(LADI v2, MIT Lincoln Laboratory / Civil Air Patrol, CC BY 4.0). Details: [`DATA_SOURCES.md`](DATA_SOURCES.md).
 Map tiles © OpenStreetMap contributors.
 
 ## License

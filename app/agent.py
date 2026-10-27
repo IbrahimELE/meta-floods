@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable
 
 from .db import Database, now_iso
-from .state import incident_images, state_hash, zones_view
+from .state import haversine_m, incident_images, state_hash, zones_view
 from .zones import ToolRejected, adjust_priority, cluster, request_review
 
 MAX_STEPS = 15
@@ -75,7 +75,21 @@ Work in this order:
 5. write_briefing in English ("en") and in Bosnian ("bs").
 
 Rules: never invent findings, locations or numbers; cite ids. "Unknown" is not "safe". Do not describe or identify people.
+Write for responders in plain words: say "unknown", never "null", "None" or field names.
+Voice field reports come from responders on the ground: they outrank a photo of unknown age, but still cite them.
 You support trained responders – they decide. Be brief."""
+
+
+def nearest_zone(zones: list[dict], lat: float, lon: float) -> str | None:
+    """Label of the zone whose area contains the point (500 m minimum radius), if any."""
+    best = None
+    for z in zones:
+        if not z["center"]:
+            continue
+        d = haversine_m(tuple(z["center"]), (lat, lon))
+        if d <= max(z["radius_m"] or 0, 500) and (best is None or d < best[0]):
+            best = (d, z["label"])
+    return best[1] if best else None
 
 
 class Agent:
@@ -109,6 +123,13 @@ class Agent:
             "notable_findings_by_photo": findings,
             "photos_not_in_a_zone": [i["id"] for i in published if i["id"] not in in_zone],
             "photos_waiting_for_location": [i["id"] for i in images if i["location_state"] == "needs_pin"],
+            "voice_reports_from_responders": [
+                {"report_id": r["id"], "lat": r["lat"], "lon": r["lon"], "at": r["created_at"],
+                 "nearest_zone": nearest_zone(zones, r["lat"], r["lon"]), **json.loads(r["report_json"])}
+                for r in self.db.query("SELECT * FROM field_reports WHERE incident_id = ? AND status = 'done' ORDER BY id",
+                                       (incident_id,))],
+            "road_blockages_confirmed_by_responders": self.db.one(
+                "SELECT COUNT(*) AS n FROM blockages WHERE incident_id = ? AND active = 1", (incident_id,))["n"],
             "open_review_requests": [dict(r) for r in self.db.query(
                 "SELECT id, kind, target_type, target_ids_json, question FROM review_requests WHERE incident_id = ? AND status = 'open'",
                 (incident_id,))],

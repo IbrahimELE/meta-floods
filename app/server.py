@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -229,9 +229,55 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
             "last_seq": last,
             "images": images,
             "zones": zones_view(db, incident_id, images),
+            "reports": [dict(r) for r in db.query(
+                "SELECT id, lat, lon, status, transcript, report_json, model, audio_seconds, error, created_at "
+                "FROM field_reports WHERE incident_id = ? ORDER BY id", (incident_id,))],
             "blockages": [dict(b) for b in db.query(
                 "SELECT * FROM blockages WHERE incident_id = ? AND active = 1 ORDER BY id", (incident_id,))],
         }
+
+    # ------------------------------------------------------------------ voice field reports
+    async def process_report(report_id: int, wav: bytes) -> None:
+        from .voice import extract, place_keywords, transcribe
+        try:
+            db.reserve("api_call", pipe.s.budget_api_calls)
+            inc = db.one("SELECT i.name, i.region_text FROM incidents i JOIN field_reports r ON r.incident_id = i.id "
+                         "WHERE r.id = ?", (report_id,))
+            asr = await asyncio.to_thread(transcribe, os.environ.get("MODEL_API_KEY", ""), wav,
+                                          place_keywords(inc["name"], inc["region_text"]))
+            text = (asr.get("transcript") or "").strip()
+            if not text:
+                raise RuntimeError("no speech recognised")
+            db.reserve("api_call", pipe.s.budget_api_calls)
+            report, model = await asyncio.to_thread(extract, pipe.s, getattr(pipe.api, "meta", None),
+                                                    getattr(pipe.api, "baseten", None), text)
+            fields = dict(status="done", transcript=text, report_json=json.dumps(report), model=model)
+        except Exception as exc:  # noqa: BLE001 – show the failure on the report
+            fields = dict(status="failed", error=f"{type(exc).__name__}: {exc}"[:300])
+        with db.tx() as c:
+            cols = ", ".join(f"{k} = ?" for k in fields)
+            c.execute(f"UPDATE field_reports SET {cols} WHERE id = ?", (*fields.values(), report_id))
+            inc = c.execute("SELECT incident_id FROM field_reports WHERE id = ?", (report_id,)).fetchone()[0]
+            db.emit(c, inc, "report_updated", {"id": report_id, "status": fields["status"]})
+
+    @app.post("/api/incidents/{incident_id}/voice")
+    async def voice_report(incident_id: str, request: Request, lat: float = Form(...), lon: float = Form(...),
+                           audio: UploadFile = File(...)) -> dict:
+        from .voice import check_wav
+        incident_for(incident_id, request, write=True)
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise HTTPException(400, "invalid coordinates")
+        wav = await audio.read(9_000_000)
+        try:
+            _, seconds = check_wav(wav)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        with db.tx() as c:
+            rid = c.execute("INSERT INTO field_reports (incident_id, lat, lon, audio_seconds, created_at) VALUES (?,?,?,?,?)",
+                            (incident_id, lat, lon, round(seconds, 1), now_iso())).lastrowid
+            db.emit(c, incident_id, "report_updated", {"id": rid, "status": "processing"})
+        app.state.agent_tasks.add(asyncio.create_task(process_report(rid, wav)))
+        return {"id": rid}
 
     # ------------------------------------------------------------------ road blockages (human only)
     @app.post("/api/incidents/{incident_id}/blockages")
@@ -361,7 +407,7 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"ok": True, "queued": db.one("SELECT COUNT(*) n FROM images WHERE processing_state='queued'")["n"],
+        return {"ok": True, "allow_dev": allow_dev, "queued": db.one("SELECT COUNT(*) n FROM images WHERE processing_state='queued'")["n"],
                 "in_flight": len(worker.in_flight)}
 
     return app

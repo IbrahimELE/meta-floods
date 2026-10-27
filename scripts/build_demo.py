@@ -64,7 +64,9 @@ def main() -> None:
     ap.add_argument("--images", required=True)
     ap.add_argument("--event", help="substring of the LADI event, e.g. VT_Flooding")
     ap.add_argument("--limit", type=int, default=30)
-    ap.add_argument("--pins", help="CSV with file,lat,lon for photos without GPS")
+    ap.add_argument("--pins", help="CSV with file,lat,lon[,uncertainty_m,note,author,license,source] – "
+                    "pins photos without GPS and records each photo's credit")
+    ap.add_argument("--credit", help="credit line for every photo (e.g. the LADI dataset), if the CSV has none")
     ap.add_argument("--as-of", default="auto")
     ap.add_argument("--mode", default="demo_readonly", choices=["demo_readonly", "dev"])
     ap.add_argument("--no-agent", action="store_true")
@@ -87,10 +89,16 @@ def main() -> None:
             ids[p.name] = image_id
     asyncio.run(pipe.run_queue(incident))
 
-    if args.pins:
-        for row in csv.DictReader(open(args.pins, encoding="utf-8-sig")):
-            if row["file"] in ids:
-                pipe.set_pin(ids[row["file"]], float(row["lat"]), float(row["lon"]))
+    rows = list(csv.DictReader(open(args.pins, encoding="utf-8-sig"))) if args.pins else []
+    by_file = {r["file"]: r for r in rows}
+    for name, image_id in ids.items():
+        row = by_file.get(name, {})
+        credit = (f"{row['author']} · {row['license']} · {row['source']}" if row.get("author") else args.credit)
+        if credit:
+            db.update_image(image_id, None, credit=credit)
+        if row.get("lat"):
+            pipe.set_pin(image_id, float(row["lat"]), float(row["lon"]),
+                         float(row.get("uncertainty_m") or 50), row.get("note") or "placed by responder")
 
     states = db.query("SELECT processing_state, location_state, published FROM images WHERE incident_id = ?", (incident,))
     print("done:", sum(r["processing_state"] == "done" for r in states), "published:", sum(r["published"] for r in states),
