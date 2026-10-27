@@ -9,3 +9,4 @@ node_modules/
 .DS_Store
 data/
 .pytest_cache/
+!samples/demo_kentucky.csv
