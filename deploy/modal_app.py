@@ -63,8 +63,8 @@ def seed_demo(data_dir: Path, snapshot: Path) -> None:
     min_containers=0,
     scaledown_window=900,
     timeout=3600,
-    cpu=2.0,
-    memory=2048,
+    cpu=4.0,                     # SAM mask decoding runs in a process pool
+    memory=4096,
 )
 @modal.concurrent(max_inputs=50)
 @modal.asgi_app()

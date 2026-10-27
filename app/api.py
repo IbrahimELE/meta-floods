@@ -62,7 +62,7 @@ class ModelApi:
                 {"type": "input_text", "text": concept},
                 {"type": "input_image", "image_url": data_url(image)},
             ]}],
-            metadata={"include_confidence": "true"},
+            metadata={"include_confidence": "true", "mask_encoding": "one_bit"},  # smaller, faster; masks are only drawn
             timeout=self.s.timeout_sam,
         )
         return response.output_text or ""

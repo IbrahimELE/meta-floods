@@ -43,7 +43,7 @@ class Settings:
     max_side: int = 1600
 
     # Concurrency, retries, timeouts (PLAN 5.2)
-    image_workers: int = _int("FH_IMAGE_WORKERS", 8)
+    image_workers: int = _int("FH_IMAGE_WORKERS", 4)   # first results sooner; decoding is CPU-bound
     max_attempts: int = 3                 # per image (restart recovery)
     retry_delays: tuple[float, ...] = (2.0, 8.0, 30.0)  # per API call
     timeout_sam: float = 60.0

@@ -117,3 +117,16 @@ Run instructions: `eval/README.md`. Raw responses, database, source-label CSV co
 ### Note: road damage misses (Claude, 27.10.)
 
 Looked at the 5 `roads_damage` positives that Muse Spark 1.3 missed. They are subtle at this altitude: a farm road with small washouts, a landslide scarp next to (not on) a road, roads partly hidden by trees. LADI's `roads_damage` is broad (any visible damage near/at a road); our per-object `passability` asks a different question (can a rescue vehicle use the visible part). Not tuned on the test set; for the product, road status comes from passability + SAM flood-water overlap + human confirmation, not from this image label.
+
+## E3 – end-to-end speed (27.10.2026)
+
+26 photos (Eastern Kentucky floods) uploaded in one request through the HTTP API; time from upload until each photo is fully assessed (`eval/run_e3.py`, `eval/e3_summary.json`), on a 2-core machine:
+
+| | First run | After fix |
+|---|---:|---:|
+| first photo on the map | 68 s | **19 s** |
+| p50 / p95 per photo (incl. queueing behind the batch) | 169 / 214 s | **80 / 137 s** |
+| whole batch on the map | 217 s | **150 s** |
+
+Plan targets (PLAN 3): first photo < 30 s ✓, 30-photo batch < 3 min ✓ (26 photos).
+Cause of the first result: a single SAM call takes 1–3 s, but SAM's mask codec is pure Python (~10 s of CPU for 150 masks per photo, decoded twice by the parser). In threads this serialized on the GIL across parallel photos. Fix: decode in a process pool, request `one_bit` masks, 4 photos in parallel so the first ones finish sooner. Deploy uses 4 CPUs.

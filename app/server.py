@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from .api import ModelApi
 from .config import Settings, settings
 from .db import BudgetExceeded, Database, now_iso
-from .pipeline import Pipeline, RejectedImage
+from .pipeline import Pipeline, RejectedImage, use_wide_executor
 from .agent import Agent, meta_caller
 from .state import describe_image, incident_images, state_hash, zones_view
 from .zones import ToolRejected, resolve_review, set_human_priority
@@ -49,6 +49,7 @@ class Worker:
             self.in_flight.discard(image_id)
 
     async def loop(self) -> None:
+        use_wide_executor()
         self.pipe.recover()                       # only here: restart recovery (PLAN 5.2)
         while True:
             rows = self.pipe.db.query("SELECT id FROM images WHERE processing_state = 'queued' ORDER BY uploaded_at")

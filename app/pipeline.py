@@ -28,6 +28,33 @@ DATETIME_ORIGINAL, DATETIME = 0x9003, 0x0132
 UNCERTAINTY_M = {"drone_oblique": 300, "satellite": 300, "unknown": 300, "drone_nadir": 50, "ground": 50}
 
 
+_DECODE_POOL = None
+
+
+def _decode(text: str, concept: str) -> list:
+    """Runs in a worker process: SAM's mask codec is pure Python and CPU-heavy
+    (~10 s for 150 masks), so decoding in threads would serialize on the GIL."""
+    return samlib.to_objects(samlib.parse(text), concept)
+
+
+def decode_pool():
+    global _DECODE_POOL
+    if _DECODE_POOL is None:
+        import os
+        from concurrent.futures import ProcessPoolExecutor
+        import multiprocessing
+        _DECODE_POOL = ProcessPoolExecutor(max_workers=max(2, os.cpu_count() or 2),
+                                           mp_context=multiprocessing.get_context("spawn"))
+    return _DECODE_POOL
+
+
+def use_wide_executor() -> None:
+    """API calls run in threads (8 images × 5 SAM concepts at once); the default pool
+    (cpu+4 threads) would queue them."""
+    from concurrent.futures import ThreadPoolExecutor
+    asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64))
+
+
 class RejectedImage(ValueError):
     """Upload refused before decoding (size, pixels, format)."""
 
@@ -142,6 +169,7 @@ class Pipeline:
     async def run_queue(self, incident_id: str | None = None, recover: bool = True) -> None:
         """Process everything queued (CLI / tests). The web server uses its own worker
         and calls recover() only once at startup."""
+        use_wide_executor()
         if recover:
             self.recover()
         sql = "SELECT id FROM images WHERE processing_state = 'queued'"
@@ -191,13 +219,20 @@ class Pipeline:
         async def concept(c: str) -> list[samlib.SamObject]:
             text = await call_with_retry(lambda: self.api.segment(path, c), timeout=self.s.timeout_sam,
                                          delays=self.s.retry_delays, before_attempt=reserve)
-            return samlib.to_objects(samlib.parse(text), c)
+            # mask decoding is CPU work → separate processes, so parallel images don't stall each other
+            if not text.strip():
+                return []
+            return await asyncio.get_running_loop().run_in_executor(decode_pool(), _decode, text, c)
 
         found = [o for group in await asyncio.gather(*(concept(c) for c in self.s.concepts)) for o in group]
-        found = samlib.merge_buildings(found, self.s.merge_iou)
-        samlib.flag_flooded_roads(found, image.size)
-        samlib.number(found)
-        overlay = samlib.render(image, found, self.s.masks_dir / f"{image_id}_overlay.jpg")
+
+        def post() -> tuple[list[samlib.SamObject], Path]:
+            objs = samlib.merge_buildings(found, self.s.merge_iou)
+            samlib.flag_flooded_roads(objs, image.size)
+            samlib.number(objs)
+            return objs, samlib.render(image, objs, self.s.masks_dir / f"{image_id}_overlay.jpg")
+
+        found, overlay = await asyncio.to_thread(post)
 
         with self.db.tx() as c:
             c.execute("DELETE FROM objects WHERE image_id = ?", (image_id,))
