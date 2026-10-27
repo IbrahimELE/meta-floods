@@ -2,3 +2,5 @@ openai>=1.60
 meta-sam-parser>=0.1.0
 python-dotenv>=1.0
 pillow>=10.0
+jsonschema>=4.0
+pytest>=8.0

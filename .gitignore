@@ -7,3 +7,5 @@ samples/*
 !samples/ladi_dev_set.csv
 node_modules/
 .DS_Store
+data/
+.pytest_cache/

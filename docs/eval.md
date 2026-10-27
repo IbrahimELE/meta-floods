@@ -34,3 +34,11 @@ Open broke enum/range constraints (structured output on Baseten is not enforced 
 ## Geolocation smoke test – vt-flood_DSC_5862
 
 Camera GPS 43.090, −72.450. Muse Spark + web_search (region "Vermont, USA"): "Richmond, VT" 44.405, −72.993, self-confidence 0.62 → **~150 km off** with a convincing but wrong chain of evidence. Supports PLAN 5.3 (AI location = suggestion only) and the E2 decision rule.
+
+## Pipeline smoke run – 6 smoke-set images (27.10.2026)
+
+`python -m app.cli` end to end (ingest → SAM 5 concepts → merge → Muse Spark 1.3 → DB): 6/6 `done`, all published with camera GPS. 15–88 objects per image.
+
+Image-level labels vs LADI v2 (6 images × 6 classes): **27/36 agree**. Systematic miss: `buildings_affected_or_greater` (0 vs 1 on 4 flood images). In FEMA terms "affected" includes flood water reaching a building, not only visible structural damage → our definition was too narrow. Fixed the definition (semantic fix from the FEMA scale, not tuned on test data). Real numbers come from E1 on the separate test split.
+
+Some assessments needed retries (up to 17 API calls for one image instead of 6): large images (50+ objects) hit the 90 s assess timeout → raised to 150 s.
