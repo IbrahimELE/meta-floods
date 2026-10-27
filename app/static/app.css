@@ -21,6 +21,7 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
+  overflow-x: hidden;
   background: var(--paper);
   color: var(--ink);
   font: 15px/1.45 var(--font-body);
@@ -37,7 +38,7 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 
 /* ---------- top bar ---------- */
 .bar {
-  display: flex; align-items: center; gap: 20px;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap; min-width: 0;
   padding: 10px 16px;
   background: var(--ink); color: #fff;
   font-family: var(--font-ui);
@@ -53,7 +54,7 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
   background: #24323f; color: #fff; border: 1px solid #3a4a59; border-radius: var(--r-s);
   padding: 5px 8px; max-width: 280px;
 }
-.counts { display: flex; gap: 16px; margin-left: auto; font-size: 15px; }
+.counts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-left: auto; font-size: 15px; min-width: 0; }
 .counts b { font-size: 18px; font-weight: 700; margin-right: 3px; }
 .upload-btn {
   position: relative; cursor: pointer;
@@ -72,7 +73,7 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 .banner.historic { background: #ece6ff; border-color: #c9b8ff; }
 
 /* ---------- layout ---------- */
-.layout { flex: 1; display: grid; grid-template-columns: 1fr 420px; min-height: 0; }
+.layout { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); min-height: 0; }
 .map-wrap { position: relative; min-height: 0; }
 #map { position: absolute; inset: 0; background: var(--paper); }
 .drop-hint {
@@ -117,7 +118,7 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 /* ---------- side panel ---------- */
 .panel {
   background: var(--surface); border-left: 1px solid var(--line);
-  overflow-y: auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; min-height: 0; min-width: 0;
 }
 .panel-list, .panel-detail { padding: 16px; }
 .panel h2 { font: 700 22px/1.2 var(--font-ui); margin: 0 0 4px; }
@@ -233,3 +234,6 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 /* read-only demo: show everything, hide what would change it */
 body.readonly .review, body.readonly select[data-zone], body.readonly .zone label,
 body.readonly #run-agent, body.readonly .resolve-btn, body.readonly #pin-this { display: none; }
+
+.findings li > div { min-width: 0; overflow-wrap: anywhere; }
+.facts dd { overflow-wrap: anywhere; }

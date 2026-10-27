@@ -16,9 +16,13 @@
   };
 
   // ------------------------------------------------------------------ map
-  const map = L.map("map", { zoomControl: true }).setView([43.86, 18.41], 7); // Sarajevo until data arrives
+  // One world only: no repeated copies, no grey bands when zoomed out
+  const map = L.map("map", {
+    zoomControl: true, minZoom: 3, worldCopyJump: false,
+    maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1.0,
+  }).setView([43.86, 18.41], 7); // Sarajevo until data arrives
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
+    maxZoom: 19, minZoom: 3, noWrap: true, bounds: [[-85, -180], [85, 180]],
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
   const zoneLayer = L.layerGroup().addTo(map);
