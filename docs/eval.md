@@ -113,3 +113,7 @@ Total usage-based estimate plus conservative reservations for unresolved calls: 
 Rates checked 2026-10-27: [Meta pricing](https://dev.meta.ai/docs/pricing-rate-limits), [Baseten Muse Spark Open](https://www.baseten.co/library/muse-spark-open/). SAM $0.0025/image request; input/output $1.25/$4.25 per million tokens, ignoring cache discounts; search $0.0025/query. Request output caps: E1 12,000 tokens, E2 6,000 tokens and at most 5 tool calls. Reservations remain charged after uncertain failures.
 
 Run instructions: `eval/README.md`. Raw responses, database, source-label CSV copies, resized EXIF images, blinded images and SAM cache remain under ignored `data/eval/`; credentials are never exported. `eval/NOTES_FOR_CLAUDE.md` records integration notes.
+
+### Note: road damage misses (Claude, 27.10.)
+
+Looked at the 5 `roads_damage` positives that Muse Spark 1.3 missed. They are subtle at this altitude: a farm road with small washouts, a landslide scarp next to (not on) a road, roads partly hidden by trees. LADI's `roads_damage` is broad (any visible damage near/at a road); our per-object `passability` asks a different question (can a rescue vehicle use the visible part). Not tuned on the test set; for the product, road status comes from passability + SAM flood-water overlap + human confirmation, not from this image label.
