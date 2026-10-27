@@ -33,6 +33,11 @@
     <section class="map-wrap" id="drop-zone">
       <div id="map" aria-label="Map of findings"></div>
       <div class="drop-hint" id="drop-hint">Drop photos to add them to this incident</div>
+      <div class="map-tools" role="toolbar" aria-label="Road tools">
+        <button type="button" id="tool-route" aria-pressed="false">Plan route</button>
+        <button type="button" id="tool-block" class="edit-only" aria-pressed="false">Mark road blocked</button>
+      </div>
+      <div class="route-box" id="route-box" hidden></div>
       <div class="pin-hint" id="pin-hint" hidden>
         <span id="pin-hint-text">Click the map where this photo was taken</span>
         <button class="ghost" id="pin-cancel" type="button">Cancel</button>
@@ -77,6 +82,7 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/static/routes.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

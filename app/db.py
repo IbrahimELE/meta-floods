@@ -167,6 +167,18 @@ CREATE TABLE IF NOT EXISTS briefings (
     run_id INTEGER,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS blockages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT NOT NULL REFERENCES incidents(id),
+    way_id INTEGER,                                -- OSM way (informative)
+    a_node INTEGER, b_node INTEGER,                -- the exact graph edge (PLAN 5.3, R2-6a)
+    a_lat REAL NOT NULL, a_lon REAL NOT NULL, b_lat REAL NOT NULL, b_lon REAL NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'both',        -- both | a_to_b | b_to_a
+    finding_id INTEGER,                            -- the AI finding it confirms, if any
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_images_incident ON images(incident_id);
 CREATE INDEX IF NOT EXISTS idx_events_incident ON events(incident_id, seq);
 """

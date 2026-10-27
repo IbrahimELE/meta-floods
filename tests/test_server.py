@@ -119,3 +119,30 @@ def test_failed_snapshot_is_an_error(tmp_path):
     db = Database(tmp_path / "l.sqlite", tmp_path / "v" / "db.sqlite", broken)
     with pytest.raises(OSError):
         db.create_incident("x")
+
+
+def test_t4_blockages_are_human_only_and_raise_zone(server):
+    """PLAN T4: an AI 'impassable' finding alone changes nothing; a responder-confirmed blockage
+    inside a zone adds +1 to the zone and is listed in the snapshot."""
+    from app.zones import cluster
+    client, pipe = server
+    inc = client.post("/api/incidents", json={"name": "t"}).json()["id"]
+    image_id = client.post(f"/api/incidents/{inc}/images", files=[("files", ("a.jpg", jpeg(gps=None), "image/jpeg"))]).json()["results"][0]["image_id"]
+    process(pipe)
+    client.post(f"/api/images/{image_id}/pin", json={"lat": 43.65, "lon": 17.96})
+    cluster(pipe.db, inc, 500)
+    before = client.get(f"/api/incidents/{inc}/snapshot").json()["zones"][0]
+    assert before["confirmed_blockage"] is False
+    r = client.post(f"/api/incidents/{inc}/blockages", json={"a": [43.6501, 17.9601], "b": [43.6505, 17.9603], "direction": "both",
+                                                               "way_id": 1, "a_node": 10, "b_node": 11})
+    assert r.status_code == 200
+    snap = client.get(f"/api/incidents/{inc}/snapshot").json()
+    after = snap["zones"][0]
+    assert after["confirmed_blockage"] is True and len(snap["blockages"]) == 1
+    if before["base_priority"] is not None:
+        assert after["base_points"] == before["base_points"] + 1
+    assert client.delete(f"/api/blockages/{r.json()['id']}").json()["ok"]
+    assert client.get(f"/api/incidents/{inc}/snapshot").json()["blockages"] == []
+    other = client.post("/api/incidents", json={"name": "other"}).json()["id"]
+    f = pipe.db.one("SELECT id FROM findings WHERE image_id = ?", (image_id,))["id"]
+    assert client.post(f"/api/incidents/{other}/blockages", json={"a": [1, 1], "b": [1, 2], "finding_id": f}).status_code == 400

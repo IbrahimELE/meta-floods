@@ -56,6 +56,16 @@
       // zone circle only; zone names are in the panel
     }
     const pts = [];
+    for (const b of state.blockages || []) {
+      const line = L.polyline([[b.a_lat, b.a_lon], [b.b_lat, b.b_lon]], { color: "#c8102e", weight: 9, opacity: .9 }).addTo(layer);
+      const dir = { both: "both directions", a_to_b: "one direction", b_to_a: "one direction" }[b.direction];
+      line.bindPopup(`<b>Road blocked</b> (${dir}) – confirmed by a responder${b.note ? `<br>${esc(b.note)}` : ""}` +
+        (state.incident?.mode === "demo_readonly" ? "" : `<br><button type="button" data-unblock="${b.id}">Remove</button>`));
+      line.on("popupopen", (e) => {
+        const btn = e.popup.getElement().querySelector("[data-unblock]");
+        if (btn) btn.onclick = async () => { await api(`/api/blockages/${b.id}`, { method: "DELETE" }); map.closePopup(); refresh(); };
+      });
+    }
     for (const img of state.images.values()) {
       if (!img.published || !img.location) continue;
       const loc = img.location;
@@ -160,7 +170,7 @@
   }
   $("pin-cancel").onclick = stopPin;
   map.on("click", async (e) => {
-    if (!state.pinTarget) return;
+    if (!state.pinTarget) return roadClick(e);
     const id = state.pinTarget;
     stopPin();
     await api(`/api/images/${id}/pin`, { method: "POST", body: JSON.stringify({ lat: e.latlng.lat, lon: e.latlng.lng }) });
@@ -248,6 +258,83 @@
     $("detail-view").hidden = true;
     $("list-view").hidden = false;
     renderMap();
+  }
+
+  // ------------------------------------------------------------------ roads (routes.js)
+  const routeLayer = L.layerGroup().addTo(map);
+  state.tool = null; state.routePts = [];
+  function setTool(tool) {
+    state.tool = state.tool === tool ? null : tool;
+    $("tool-route").setAttribute("aria-pressed", String(state.tool === "route"));
+    $("tool-block").setAttribute("aria-pressed", String(state.tool === "block"));
+    $("drop-zone").classList.toggle("pinning", !!state.tool);
+    state.routePts = [];
+    routeLayer.clearLayers();
+    routeBox(state.tool === "route" ? "<h4>Plan a route</h4>Click the start (e.g. your base), then the destination."
+      : state.tool === "block" ? "<h4>Mark a blocked road</h4>Click on the road that is blocked. Only roads you confirm here change routes." : "");
+  }
+  $("tool-route").onclick = () => setTool("route");
+  $("tool-block").onclick = () => setTool("block");
+  function routeBox(html) { $("route-box").innerHTML = html; $("route-box").hidden = !html; }
+
+  async function graphFor(points) {
+    const bbox = FHRoutes.bboxAround(points);
+    if (bbox[2] - bbox[0] > 0.6 || bbox[3] - bbox[1] > 0.8) throw new Error("Area too large for road data – pick points closer together (about 30 km).");
+    routeBox("<h4>Loading roads…</h4>OpenStreetMap road data for this area.");
+    return FHRoutes.buildGraph(await FHRoutes.fetchRoads(bbox));
+  }
+
+  async function roadClick(e) {
+    if (!state.tool) return;
+    const P = [e.latlng.lat, e.latlng.lng];
+    try {
+      if (state.tool === "block") {
+        const g = await graphFor([P]);
+        const s = FHRoutes.nearestSegment(g, P);
+        if (!s || s.d > 80) return routeBox("<h4>No road here</h4>Click directly on a road (within ~80 m).");
+        routeLayer.clearLayers();
+        L.polyline([s.A, s.B], { color: "#c8102e", weight: 9, dashArray: "6 6" }).addTo(routeLayer);
+        routeBox(`<h4>Block this road segment?</h4>${esc(s.name || "unnamed road")} – OSM way ${s.way}
+          <div class="actions"><select id="block-dir" aria-label="Direction"><option value="both">both directions</option>
+          <option value="a_to_b">one direction (→)</option><option value="b_to_a">other direction (←)</option></select>
+          <button type="button" class="primary" id="block-ok">Confirm blocked</button><button type="button" id="block-cancel">Cancel</button></div>`);
+        $("block-cancel").onclick = () => setTool("block");
+        $("block-ok").onclick = async () => {
+          await api(`/api/incidents/${state.incident.id}/blockages`, { method: "POST", body: JSON.stringify({
+            way_id: s.way, a_node: s.a, b_node: s.b, a: s.A, b: s.B, direction: $("block-dir").value }) });
+          setTool("block"); setTool("block"); refresh();
+        };
+        return;
+      }
+      // route
+      state.routePts.push(P);
+      L.circleMarker(P, { radius: 7, color: "#0b5cad", fillOpacity: 1 }).addTo(routeLayer);
+      if (state.routePts.length < 2) return routeBox("<h4>Plan a route</h4>Start set. Now click the destination.");
+      const [A, B] = state.routePts;
+      const g = await graphFor([A, B]);
+      const s = FHRoutes.nearestNode(g, A), t = FHRoutes.nearestNode(g, B);
+      const blocked = FHRoutes.blockedKeys(state.blockages || []);
+      const r = FHRoutes.dijkstra(g, s.id, t.id, blocked);
+      state.routePts = [];
+      if (!r) return routeBox(`<h4>No route found</h4>No road connection that avoids the ${blocked.size ? "confirmed blockages" : "area"}. Try another start.`);
+      L.polyline(r.coords, { color: "#0b5cad", weight: 6, opacity: .85 }).addTo(routeLayer);
+      L.polyline([A, r.coords[0]], { color: "#0b5cad", weight: 2, dashArray: "4 6" }).addTo(routeLayer);
+      L.polyline([r.coords[r.coords.length - 1], B], { color: "#0b5cad", weight: 2, dashArray: "4 6" }).addTo(routeLayer);
+      const warnings = [...state.images.values()].filter((i) => i.published && i.location && (i.summary?.roads_blocked || i.summary?.roads_caution) &&
+        r.coords.some((c) => FHRoutes.dist(c, [i.location.lat, i.location.lon]) < 400));
+      routeBox(`<h4>Suggested route: ${(r.length / 1000).toFixed(1)} km</h4>
+        Avoids ${(state.blockages || []).length} road blockage${(state.blockages || []).length === 1 ? "" : "s"} confirmed by responders.
+        Roads without reports are <b>not verified</b> as passable.
+        ${warnings.map((i) => `<div class="warn">AI reports a possibly ${i.summary.roads_blocked ? "impassable" : "difficult"} road near
+          <a href="#" data-open="${i.id}">${esc(i.original_name)}</a> – not confirmed. Check it, then mark it blocked if needed.</div>`).join("")}
+        <div class="actions"><button type="button" id="route-new">New route</button><button type="button" id="route-close">Close</button></div>`);
+      $("route-new").onclick = () => { routeLayer.clearLayers(); routeBox("<h4>Plan a route</h4>Click the start, then the destination."); };
+      $("route-close").onclick = () => setTool(state.tool);
+      for (const el of $("route-box").querySelectorAll("[data-open]")) el.onclick = (ev) => { ev.preventDefault(); openDetail(el.dataset.open); };
+    } catch (err) {
+      state.routePts = [];
+      routeBox(`<h4>Road data unavailable</h4>${esc(err.message)}`);
+    }
   }
 
   // ------------------------------------------------------------------ coordinator (agent)
@@ -355,6 +442,7 @@
     state.incident = snap.incident;
     state.images = new Map(snap.images.map((i) => [i.id, i]));
     state.zones = snap.zones || [];
+    state.blockages = snap.blockages || [];
     renderMap();
     renderZones();
     loadAgent();
@@ -367,7 +455,7 @@
   function listen(after) {
     if (state.events) state.events.close();
     const es = new EventSource(`/api/incidents/${state.incident.id}/events?after=${after}`);
-    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated",
+    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated", "blockage_added", "blockage_removed",
       "agent_started", "agent_action", "agent_finished", "briefing_written", "review_requested", "review_resolved"]) es.addEventListener(t, refreshSoon);
     state.events = es; // EventSource reconnects by itself and sends Last-Event-ID
   }
@@ -442,7 +530,7 @@
   dz.addEventListener("dragleave", (e) => { if (!dz.contains(e.relatedTarget)) dz.classList.remove("dragging"); });
   dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("dragging"); upload(e.dataTransfer.files); });
 
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (state.pinTarget) stopPin(); else closeDetail(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (state.pinTarget) stopPin(); else if (state.tool) setTool(state.tool); else closeDetail(); } });
 
   loadIncidents(new URLSearchParams(location.search).get("incident"));
 })();

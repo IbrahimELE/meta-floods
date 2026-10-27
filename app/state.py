@@ -95,12 +95,19 @@ def zones_view(db: Database, incident_id: str, images: list[dict] | None = None)
     by_id = {i["id"]: i for i in images}
     reviews = latest_reviews(db, "finding")
     out = []
+    blocks = [((b["a_lat"] + b["b_lat"]) / 2, (b["a_lon"] + b["b_lon"]) / 2)
+              for b in db.query("SELECT * FROM blockages WHERE incident_id = ? AND active = 1", (incident_id,))]
     for z in db.query("SELECT * FROM zones WHERE incident_id = ? AND active = 1 ORDER BY id", (incident_id,)):
         members = [r["image_id"] for r in db.query("SELECT image_id FROM zone_members WHERE zone_id = ?", (z["id"],))]
         imgs = [by_id[m] for m in members if m in by_id and by_id[m]["published"]]
         points = [i["points"] for i in imgs if i["points"] is not None]
         base_points = max(points) if points else None
-        blocked = any(i["summary"]["roads_blocked_confirmed"] for i in imgs)
+        lats = [i["location"]["lat"] for i in imgs if i["location"]]
+        lons = [i["location"]["lon"] for i in imgs if i["location"]]
+        center = (sum(lats) / len(lats), sum(lons) / len(lons)) if lats else None
+        radius = (max((haversine_m(center, (a, b)) for a, b in zip(lats, lons)), default=0) + 150) if center else None
+        blocked = any(i["summary"]["roads_blocked_confirmed"] for i in imgs) or bool(
+            center and any(haversine_m(center, p) <= max(radius, 500) for p in blocks))
         if base_points is not None and blocked:
             base_points += 1
         base = to_priority(base_points)
@@ -113,8 +120,6 @@ def zones_view(db: Database, incident_id: str, images: list[dict] | None = None)
             if z["agent_revision"] != z["revision"] or invalid or base is None:
                 delta, delta_status = 0, "expired – evidence changed"
         priority = z["human_priority"] or (None if base is None else max(1, min(5, base + delta)))
-        lats = [i["location"]["lat"] for i in imgs if i["location"]]
-        lons = [i["location"]["lon"] for i in imgs if i["location"]]
         out.append({
             "id": z["id"], "revision": z["revision"], "locked": bool(z["locked"]),
             "status": "unassessed" if base is None and not z["human_priority"] else "assessed",
@@ -122,9 +127,8 @@ def zones_view(db: Database, incident_id: str, images: list[dict] | None = None)
             "agent_delta": delta, "agent_delta_status": delta_status, "agent_reason": z["agent_reason"] if delta else None,
             "human_priority": z["human_priority"], "priority": priority,
             "image_ids": [i["id"] for i in imgs],
-            "center": [sum(lats) / len(lats), sum(lons) / len(lons)] if lats else None,
-            "radius_m": max((haversine_m((sum(lats) / len(lats), sum(lons) / len(lons)), (a, b))
-                             for a, b in zip(lats, lons)), default=0) + 150 if lats else None,
+            "center": list(center) if center else None,
+            "radius_m": radius,
             "label": z["label"],
         })
     out.sort(key=lambda z: (z["status"] != "unassessed", -(z["priority"] or 0)))

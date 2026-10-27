@@ -80,6 +80,17 @@ class ReviewIn(BaseModel):
     action: str = Field(pattern="^(confirm|reject)$")
 
 
+class BlockageIn(BaseModel):
+    way_id: int | None = None
+    a_node: int | None = None
+    b_node: int | None = None
+    a: tuple[float, float]
+    b: tuple[float, float]
+    direction: str = Field(default="both", pattern="^(both|a_to_b|b_to_a)$")
+    finding_id: int | None = None
+    note: str | None = Field(default=None, max_length=300)
+
+
 class ZonePriorityIn(BaseModel):
     priority: int | None = Field(default=None, ge=1, le=5)
 
@@ -218,7 +229,43 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
             "last_seq": last,
             "images": images,
             "zones": zones_view(db, incident_id, images),
+            "blockages": [dict(b) for b in db.query(
+                "SELECT * FROM blockages WHERE incident_id = ? AND active = 1 ORDER BY id", (incident_id,))],
         }
+
+    # ------------------------------------------------------------------ road blockages (human only)
+    @app.post("/api/incidents/{incident_id}/blockages")
+    def add_blockage(incident_id: str, body: BlockageIn, request: Request) -> dict:
+        incident_for(incident_id, request, write=True)
+        for lat, lon in (body.a, body.b):
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise HTTPException(400, "invalid coordinates")
+        if body.finding_id is not None:
+            f = db.one("SELECT image_id FROM findings WHERE id = ?", (body.finding_id,))
+            if f is None or db.image(f["image_id"])["incident_id"] != incident_id:
+                raise HTTPException(400, "finding does not belong to this incident")
+        with db.tx() as c:
+            cur = c.execute(
+                """INSERT INTO blockages (incident_id, way_id, a_node, b_node, a_lat, a_lon, b_lat, b_lon, direction,
+                   finding_id, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (incident_id, body.way_id, body.a_node, body.b_node, *body.a, *body.b, body.direction,
+                 body.finding_id, body.note, now_iso()))
+            if body.finding_id is not None:
+                c.execute("INSERT INTO reviews (target_type, target_id, action, created_at) VALUES ('finding', ?, 'confirm', ?)",
+                          (str(body.finding_id), now_iso()))
+            db.emit(c, incident_id, "blockage_added", {"id": cur.lastrowid})
+        return {"id": cur.lastrowid}
+
+    @app.delete("/api/blockages/{blockage_id}")
+    def remove_blockage(blockage_id: int, request: Request) -> dict:
+        b = db.one("SELECT * FROM blockages WHERE id = ?", (blockage_id,))
+        if b is None:
+            raise HTTPException(404, "blockage not found")
+        incident_for(b["incident_id"], request, write=True)
+        with db.tx() as c:
+            c.execute("UPDATE blockages SET active = 0 WHERE id = ?", (blockage_id,))
+            db.emit(c, b["incident_id"], "blockage_removed", {"id": blockage_id})
+        return {"ok": True}
 
     # ------------------------------------------------------------------ agent + zones
     def make_agent() -> Agent:

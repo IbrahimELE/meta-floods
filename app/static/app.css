@@ -237,3 +237,23 @@ body.readonly #run-agent, body.readonly .resolve-btn, body.readonly #pin-this { 
 
 .findings li > div { min-width: 0; overflow-wrap: anywhere; }
 .facts dd { overflow-wrap: anywhere; }
+
+/* ---------- road tools ---------- */
+.map-tools { position: absolute; top: 12px; right: 12px; z-index: 900; display: flex; gap: 6px; }
+.map-tools button {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s);
+  padding: 6px 10px; font: 600 14px var(--font-ui); cursor: pointer; box-shadow: 0 1px 3px rgba(24,35,46,.25);
+}
+.map-tools button[aria-pressed="true"] { background: var(--signal); color: #fff; border-color: var(--signal); }
+.route-box {
+  position: absolute; right: 12px; top: 54px; z-index: 900; width: min(340px, calc(100% - 24px));
+  background: var(--surface); border-radius: var(--r-m); padding: 10px 12px; font-size: 14px;
+  box-shadow: 0 2px 8px rgba(24,35,46,.3);
+}
+.route-box h4 { margin: 0 0 4px; font: 600 16px var(--font-ui); }
+.route-box .warn { border-left: 3px solid var(--p4); padding-left: 8px; margin: 6px 0; }
+.route-box .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.route-box button { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-s); padding: 4px 10px; cursor: pointer; }
+.route-box button.primary { background: var(--p5); color: #fff; border-color: var(--p5); }
+.route-box select { padding: 3px; }
+body.readonly .edit-only { display: none; }
