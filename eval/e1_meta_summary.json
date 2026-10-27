@@ -1,0 +1,119 @@
+{
+  "backend": "meta",
+  "n": 100,
+  "per_class": {
+    "flooding_any": {
+      "positive": 19,
+      "tp": 17,
+      "fp": 11,
+      "fn": 2,
+      "tn": 70,
+      "precision": 0.6071428571428571,
+      "recall": 0.8947368421052632,
+      "f1": 0.7234042553191489,
+      "nonanswers": 0
+    },
+    "flooding_structures": {
+      "positive": 4,
+      "tp": 2,
+      "fp": 0,
+      "fn": 2,
+      "tn": 96,
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "nonanswers": 0
+    },
+    "buildings_affected_or_greater": {
+      "positive": 15,
+      "tp": 15,
+      "fp": 3,
+      "fn": 0,
+      "tn": 82,
+      "precision": 0.8333333333333334,
+      "recall": 1.0,
+      "f1": 0.9090909090909091,
+      "nonanswers": 0
+    },
+    "buildings_major_or_greater": {
+      "positive": 8,
+      "tp": 7,
+      "fp": 5,
+      "fn": 1,
+      "tn": 87,
+      "precision": 0.5833333333333334,
+      "recall": 0.875,
+      "f1": 0.7000000000000001,
+      "nonanswers": 0
+    },
+    "roads_damage": {
+      "positive": 6,
+      "tp": 1,
+      "fp": 0,
+      "fn": 5,
+      "tn": 94,
+      "precision": 1.0,
+      "recall": 0.16666666666666666,
+      "f1": 0.2857142857142857,
+      "nonanswers": 0
+    },
+    "debris_any": {
+      "positive": 15,
+      "tp": 15,
+      "fp": 11,
+      "fn": 0,
+      "tn": 74,
+      "precision": 0.5769230769230769,
+      "recall": 1.0,
+      "f1": 0.7317073170731707,
+      "nonanswers": 0
+    }
+  },
+  "macro_classes": [
+    "flooding_any",
+    "buildings_affected_or_greater",
+    "debris_any"
+  ],
+  "macro_f1": 0.7880674938277429,
+  "valid_json_percent": 100.0,
+  "valid_schema_first_percent": 100.0,
+  "valid_pipeline_percent": 100.0,
+  "assess_p50_s": 11.26342809350001,
+  "assess_p95_s": 23.131151241999987,
+  "latency_definition": "Successful images: sum of assessment attempt wall times, including invalid-response retry; excludes shared cached SAM.",
+  "attempted_responses": 100,
+  "source_hashes": {
+    "__init__.py": "90411b0dddee57a98fc6176001aff3543844c6b75d2ea5dd6df4ff462c0abf2f",
+    "api.py": "9b8bca25c3d585864683c7ea4bdb1c6d6c9f755457372523246c7035be455daf",
+    "cli.py": "51f85f388ff099bf7fe0cd905fe2637f63fb3c2a2df63e20910820d403e505cc",
+    "config.py": "50488081e4713a669541e40413031c2ab77aa1ed2cb4c8b2d522daef08e57073",
+    "db.py": "9a5fa67635ab7f7e3ce85254af8de6323654092af17e8c6b8a785a6037ebda23",
+    "pipeline.py": "45965abfd5f14a44abdb3190fe89e51ab4096e5089c74d3ab00a607c416b7c5e",
+    "priority.py": "c11eec0973fd56130cf015716408ae204e5a9eb8db533d0d34e75ced25d9d5e9",
+    "sam.py": "cd9703df51f3c4992e2960c6bf10d6174373f1c7100cccc28e435ebd74035347",
+    "schema.py": "107db2c789eec339c7e5528cfcf0f2653aa0ea4044ea8ef04d44baf3c9ea0c63",
+    "server.py": "e23d89ebe69f0ee5c6406ba31c1f3cb7f23b3b097abe9382294b478d2c0f0f27"
+  },
+  "cost": {
+    "estimated_or_reserved_usd": 3.9720180000000003,
+    "by_kind": {
+      "e1_meta": {
+        "calls": 100,
+        "usd": 1.53813325,
+        "uncertain_calls": 0
+      },
+      "e2_meta": {
+        "calls": 40,
+        "usd": 1.18388475,
+        "uncertain_calls": 0
+      },
+      "sam": {
+        "calls": 500,
+        "usd": 1.25,
+        "uncertain_calls": 0
+      }
+    },
+    "limit_usd": 9,
+    "note": "Estimate from usage, not provider invoice; unresolved calls retain conservative reservations."
+  }
+}
