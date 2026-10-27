@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     region_text TEXT,
     mode TEXT NOT NULL DEFAULT 'dev',           -- dev | demo_readonly | sandbox
     as_of TEXT,                                 -- fixed time for historical scenarios
+    access_token_hash TEXT,                     -- sandbox: sha256 of the visitor's secret token
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS images (
@@ -130,7 +131,14 @@ class Database:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._lock = threading.RLock()
+
+    def _migrate(self) -> None:
+        """Columns added after the first release of the schema."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(incidents)")}
+        if "access_token_hash" not in cols:
+            self._conn.execute("ALTER TABLE incidents ADD COLUMN access_token_hash TEXT")
 
     # ---- transactions -------------------------------------------------------------
     @contextmanager
@@ -166,13 +174,14 @@ class Database:
             (incident_id, type_, json.dumps(payload), now_iso()),
         )
 
-    def create_incident(self, name: str, region_text: str | None = None,
-                        mode: str = "dev", as_of: str | None = None) -> str:
+    def create_incident(self, name: str, region_text: str | None = None, mode: str = "dev",
+                        as_of: str | None = None, access_token_hash: str | None = None) -> str:
         incident_id = uuid.uuid4().hex[:12]
         with self.tx() as c:
             c.execute(
-                "INSERT INTO incidents (id, name, region_text, mode, as_of, created_at) VALUES (?,?,?,?,?,?)",
-                (incident_id, name, region_text, mode, as_of, now_iso()),
+                """INSERT INTO incidents (id, name, region_text, mode, as_of, access_token_hash, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (incident_id, name, region_text, mode, as_of, access_token_hash, now_iso()),
             )
         return incident_id
 

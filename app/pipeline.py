@@ -139,8 +139,11 @@ class Pipeline:
                 self.db.update_image(row["id"], "image_updated", processing_state="queued")
         return len(rows)
 
-    async def run_queue(self, incident_id: str | None = None) -> None:
-        self.recover()
+    async def run_queue(self, incident_id: str | None = None, recover: bool = True) -> None:
+        """Process everything queued (CLI / tests). The web server uses its own worker
+        and calls recover() only once at startup."""
+        if recover:
+            self.recover()
         sql = "SELECT id FROM images WHERE processing_state = 'queued'"
         args: tuple = ()
         if incident_id:
