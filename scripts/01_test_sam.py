@@ -111,10 +111,10 @@ def paste_mask(canvas: Image.Image, mask_record, color) -> int:
         local = local.resize(size, Image.NEAREST)
     fill = Image.new("RGBA", size, color)
     canvas.paste(fill, (left, top), local)
-    return sum(1 for v in local.getdata() if v)
+    return local.histogram()[255]
 
 
-def render(image_path: Path, objects: list[dict]) -> Path:
+def render(image_path: Path, objects: list[dict], target: Path | None = None) -> Path:
     base = ImageOps.exif_transpose(Image.open(image_path)).convert("RGBA")
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
     for obj in objects:
@@ -130,7 +130,7 @@ def render(image_path: Path, objects: list[dict]) -> Path:
         label = f"#{obj['id']}"
         draw.rectangle([x1, y1, x1 + 12 + 9 * len(label), y1 + 20], fill=color)
         draw.text((x1 + 4, y1 + 4), label, fill=(0, 0, 0))
-    target = out_path(f"{image_path.stem}_sam.png")
+    target = target or out_path(f"{image_path.stem}_sam.png")
     image.convert("RGB").save(target)
     return target
 
