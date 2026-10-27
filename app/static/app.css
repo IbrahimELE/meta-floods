@@ -213,7 +213,7 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 .zone .title { font: 600 15px var(--font-ui); }
 .zone .why { font-size: 13px; color: var(--ink-2); }
 .zone select { font-size: 13px; padding: 2px 4px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); }
-.zone.unassessed .title::after { content: " – not assessed, check the photos"; font-weight: 400; color: var(--unassessed); }
+.zone.zone-unassessed .title::after { content: " – not assessed, check the photos"; font-weight: 400; color: var(--unassessed); }
 .agent-delta { font-size: 13px; color: var(--signal); }
 .agent-delta.expired { color: var(--ink-2); text-decoration: line-through; }
 .req { border-left: 3px solid var(--p4); background: #fff5ee; padding: 6px 10px; margin: 6px 0; font-size: 14px; border-radius: 0 var(--r-s) var(--r-s) 0; }

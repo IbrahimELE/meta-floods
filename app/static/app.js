@@ -253,7 +253,7 @@
       const delta = z.agent_delta ? `<div class="agent-delta">Coordinator ${z.agent_delta > 0 ? "raised" : "lowered"} by 1: ${esc(z.agent_reason)}</div>`
         : z.agent_delta_status ? `<div class="agent-delta expired">Coordinator correction ${esc(z.agent_delta_status)}</div>` : "";
       const opts = ["", 5, 4, 3, 2, 1].map((p) => `<option value="${p}" ${z.human_priority === p || (p === "" && !z.human_priority) ? "selected" : ""}>${p === "" ? "rule" : "set " + p}</option>`).join("");
-      return `<div class="zone ${z.status}">
+      return `<div class="zone ${z.status === "unassessed" ? "zone-unassessed" : ""}">
         <span class="prio ${z.priority ? "p" + z.priority : "unassessed"}" style="width:30px;height:30px;border-radius:6px 6px 6px 0;display:grid;place-items:center;color:#fff;font:700 17px var(--font-ui)">${z.priority ?? "?"}</span>
         <div><div class="title">${esc(z.label)}</div>
           <div class="why">${imgs.length} photo${imgs.length === 1 ? "" : "s"}, ${dmg} buildings with major damage or destroyed${z.confirmed_blockage ? ", confirmed road blockage" : ""}</div>
