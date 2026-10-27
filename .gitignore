@@ -11,3 +11,4 @@ data/
 .pytest_cache/
 !samples/demo_kentucky.csv
 !samples/demo_bih2014.csv
+docs/poruka-gss.md

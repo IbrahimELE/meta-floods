@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import csv
 import glob
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -61,7 +62,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True)
     ap.add_argument("--region")
-    ap.add_argument("--images", required=True)
+    ap.add_argument("--images", default="", help="glob of photos (may be empty when --video is given)")
+    ap.add_argument("--video", help="drone clip: SAM 3.1 tracks it, keyframes join the photos")
+    ap.add_argument("--video-start", type=float, default=0.0, help="seconds to skip at the start of the clip")
+    ap.add_argument("--video-credit", help="credit line for the clip and its keyframes")
+    ap.add_argument("--video-pin", help="lat,lon,uncertainty_m,note – approximate place of the clip (no GPS in the file)")
     ap.add_argument("--event", help="substring of the LADI event, e.g. VT_Flooding")
     ap.add_argument("--limit", type=int, default=30)
     ap.add_argument("--pins", help="CSV with file,lat,lon[,uncertainty_m,note,author,license,source] – "
@@ -72,10 +77,10 @@ def main() -> None:
     ap.add_argument("--no-agent", action="store_true")
     args = ap.parse_args()
 
-    paths = pick(args.images, args.event, args.limit)
-    if not paths:
+    paths = pick(args.images, args.event, args.limit) if args.images else []
+    if not paths and not args.video:
         sys.exit("no images matched")
-    as_of = auto_as_of(paths) if args.as_of == "auto" else args.as_of
+    as_of = (auto_as_of(paths) if paths else None) if args.as_of == "auto" else args.as_of
     db = Database(settings.db_path)
     api = ModelApi(settings, os.environ.get("MODEL_API_KEY"), os.environ.get("BASETEN_API_KEY"))
     pipe = Pipeline(db, settings, api)
@@ -87,7 +92,20 @@ def main() -> None:
         image_id = pipe.ingest(incident, p.read_bytes(), p.name)
         if image_id:
             ids[p.name] = image_id
+    if args.video:
+        from app import video
+        video_id, info = video.register(db, settings, incident, Path(args.video).read_bytes(), Path(args.video).name,
+                                        args.video_start, args.video_credit)
+        print("clip", info)
+        asyncio.run(video.process(pipe, video_id))
+        v = db.one("SELECT status, summary_json, keyframes_json, error FROM videos WHERE id = ?", (video_id,))
+        print("clip", dict(v))
+        keyframes = json.loads(v["keyframes_json"] or "[]")
     asyncio.run(pipe.run_queue(incident))
+    if args.video and args.video_pin:
+        lat, lon, unc, note = args.video_pin.split(",", 3)
+        for k in keyframes:
+            pipe.set_pin(k["image_id"], float(lat), float(lon), float(unc), note)
 
     rows = list(csv.DictReader(open(args.pins, encoding="utf-8-sig"))) if args.pins else []
     by_file = {r["file"]: r for r in rows}

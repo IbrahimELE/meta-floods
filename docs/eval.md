@@ -122,11 +122,27 @@ Looked at the 5 `roads_damage` positives that Muse Spark 1.3 missed. They are su
 
 26 photos (Eastern Kentucky floods) uploaded in one request through the HTTP API; time from upload until each photo is fully assessed (`eval/run_e3.py`, `eval/e3_summary.json`), on a 2-core machine:
 
-| | First run | After fix |
-|---|---:|---:|
-| first photo on the map | 68 s | **19 s** |
-| p50 / p95 per photo (incl. queueing behind the batch) | 169 / 214 s | **80 / 137 s** |
-| whole batch on the map | 217 s | **150 s** |
+| | First run | Process pool | + masks decoded once (27.10. late) |
+|---|---:|---:|---:|
+| first photo on the map | 68 s | 19 s | **15 s** |
+| p50 / p95 per photo (incl. queueing behind the batch) | 169 / 214 s | 80 / 137 s | **50 / 88 s** |
+| whole batch on the map | 217 s | 150 s | **96 s** |
 
 Plan targets (PLAN 3): first photo < 30 s ✓, 30-photo batch < 3 min ✓ (26 photos).
 Cause of the first result: a single SAM call takes 1–3 s, but SAM's mask codec is pure Python (~10 s of CPU for 150 masks per photo, decoded twice by the parser). In threads this serialized on the GIL across parallel photos. Fix: decode in a process pool, request `one_bit` masks, 4 photos in parallel so the first ones finish sooner. Deploy uses 4 CPUs.
+Second fix: the parser decodes every mask once only to validate it and discards the raster; we cache that
+result and reuse it for the overlay (`app/sam.py`), so each mask is decoded once.
+
+## Drone clip and voice report (27.10.2026, browser tests with real models)
+
+| | Measured |
+|---|---|
+| Drone clip, 20 s at 5 fps (100 frames), 3 concepts tracked in parallel – upload → counts shown | **16 s** |
+| … → overlay video with tracks ready (2 cores, while the 4 keyframes are assessed) | 125 s |
+| Tracked: houses / roads / flood-water areas | ≥ 16 (per-frame cap) / 2 / 2 |
+| Keyframes picked (one per ~5 s; first one covers all 16 tracked houses) | 4 |
+| Voice report, 13.5 s English recording → transcript + structured report on the map | **7 s** |
+| Extraction with Muse Spark Open (JSON mode), 3 test transcripts | 3–7 s, all fields valid |
+
+Tests: `tests/e2e_video.js`, `tests/e2e_voice.js` (the voice test uses synthetic speech, espeak-ng).
+Cost per clip: 3 × 100 frames × $0.20 / 1000 = $0.06 plus 4 photo assessments.

@@ -264,10 +264,19 @@ body.readonly .edit-only { display: none; }
   display: grid; place-items: center; font-size: 15px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .voice-pin.processing { border-style: dashed; opacity: .75; }
 .voice-pin.failed { border-color: var(--ink-2); filter: grayscale(1); }
-#reports h3 { margin: 16px 0 6px; }
+#reports h3 { margin: 4px 0 6px; }
+#reports:not(:empty) { margin-bottom: 14px; }
 .report { border-left: 4px solid #6741d9; background: #f3f0ff; padding: 8px 10px; margin: 6px 0; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .report.failed { border-left-color: var(--ink-2); background: var(--paper); }
 .report .tags, .leaflet-popup-content .tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 .report .tags span, .leaflet-popup-content .tags span { background: #fff; border: 1px solid #c5b8f5; border-radius: 10px; padding: 1px 8px; font-size: 12px; }
 .report details, .leaflet-popup-content details { margin: 4px 0; font-size: 13px; }
 .file-btn { cursor: pointer; text-decoration: underline; font-size: 14px; align-self: center; }
+
+/* drone clips */
+#videos h3 { margin: 4px 0 6px; }
+#videos:not(:empty) { margin-bottom: 14px; }
+.clip { border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 10px; margin: 6px 0; }
+.clip video { width: 100%; border-radius: 4px; background: #000; display: block; margin: 6px 0; }
+.clip-title { font-weight: 600; font-size: 14px; }
+.clip-counts { margin: 4px 0 6px 18px; padding: 0; font-size: 14px; }

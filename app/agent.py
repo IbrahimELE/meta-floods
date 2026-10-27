@@ -76,6 +76,8 @@ Work in this order:
 
 Rules: never invent findings, locations or numbers; cite ids. "Unknown" is not "safe". Do not describe or identify people.
 Write for responders in plain words: say "unknown", never "null", "None" or field names.
+Keyframes of one drone clip were chosen by SAM 3.1 tracking to show different objects; do not flag them as
+duplicates of each other. The clip's tracked counts are objects, not frames.
 Voice field reports come from responders on the ground: they outrank a photo of unknown age, but still cite them.
 You support trained responders – they decide. Be brief."""
 
@@ -127,6 +129,11 @@ class Agent:
                 {"report_id": r["id"], "lat": r["lat"], "lon": r["lon"], "at": r["created_at"],
                  "nearest_zone": nearest_zone(zones, r["lat"], r["lon"]), **json.loads(r["report_json"])}
                 for r in self.db.query("SELECT * FROM field_reports WHERE incident_id = ? AND status = 'done' ORDER BY id",
+                                       (incident_id,))],
+            "drone_clips": [
+                {"name": v["original_name"], "seconds": v["seconds"], "tracked_objects": json.loads(v["summary_json"] or "{}"),
+                 "keyframe_photo_ids": [k["image_id"] for k in json.loads(v["keyframes_json"] or "[]")]}
+                for v in self.db.query("SELECT * FROM videos WHERE incident_id = ? AND status IN ('rendering', 'done')",
                                        (incident_id,))],
             "road_blockages_confirmed_by_responders": self.db.one(
                 "SELECT COUNT(*) AS n FROM blockages WHERE incident_id = ? AND active = 1", (incident_id,))["n"],

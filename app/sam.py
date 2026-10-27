@@ -13,6 +13,27 @@ from meta_sam_parser import (
 )
 from PIL import Image, ImageChops, ImageDraw
 
+import meta_sam_parser._segmentation as _segmentation
+
+# The parser decodes every mask once just to validate it and throws the raster away; local_mask
+# then decodes it again. Mask decoding is pure Python and dominates CPU time, so the parser's
+# validation decode is cached and reused (the mask is frozen, its payload is the key).
+_RASTERS: dict = {}
+
+
+def _decode_cached(mask) -> bytes:
+    key = (mask.encoding, mask.width, mask.height, mask.payload)
+    raster = _RASTERS.pop(key, None)
+    if raster is None:
+        raster = decode_mask_to_raster(mask)
+    _RASTERS[key] = raster
+    while len(_RASTERS) > 64:
+        _RASTERS.pop(next(iter(_RASTERS)))
+    return raster
+
+
+_segmentation.decode_mask_to_raster = _decode_cached
+
 COLORS = {
     "building": (255, 99, 71),
     "house": (255, 99, 71),
@@ -76,7 +97,7 @@ def local_mask(mask_record) -> tuple[Image.Image, tuple[int, int]]:
     """SAM mask → box-local 'L' image (255 inside) and its top-left origin.
     Masks stay box-local to keep memory small (an image can have 80+ objects)."""
     mask = mask_record.mask
-    raster = decode_mask_to_raster(mask)
+    raster = _decode_cached(mask)
     local = Image.frombytes("L", (mask.width, mask.height), bytes(raster)).point(lambda v: 255 if v else 0)
     b = mask_record.bounds
     left, top = round(b.left), round(b.top)

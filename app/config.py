@@ -71,5 +71,9 @@ class Settings:
     def masks_dir(self) -> Path:
         return self.data_dir / "masks"
 
+    @property
+    def videos_dir(self) -> Path:
+        return self.data_dir / "videos"
+
 
 settings = Settings()

@@ -180,6 +180,21 @@ CREATE TABLE IF NOT EXISTS blockages (
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS videos (
+    id TEXT PRIMARY KEY,
+    incident_id TEXT NOT NULL REFERENCES incidents(id),
+    original_name TEXT,
+    path TEXT NOT NULL,                            -- normalised clip (H.264, 5 fps, <= 30 s)
+    overlay_path TEXT,                             -- clip with SAM 3.1 tracks drawn in
+    width INTEGER, height INTEGER, frames INTEGER, seconds REAL,
+    status TEXT NOT NULL DEFAULT 'queued',         -- queued | tracking | rendering | done | failed
+    summary_json TEXT,                             -- per concept: tracked objects, max in one frame, capped
+    keyframes_json TEXT,                           -- [{frame, seconds, image_id}]
+    credit TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS field_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     incident_id TEXT NOT NULL REFERENCES incidents(id),

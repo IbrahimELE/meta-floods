@@ -28,6 +28,7 @@ VOL_PATH = "/vol"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg")                                  # drone clips: normalise, keyframes, overlay video
     .pip_install_from_requirements(str(ROOT / "requirements.txt"))
     .add_local_dir(str(ROOT / "app"), "/root/app")
     .add_local_dir(str(ROOT / "data" / "demo"), "/root/seed/demo")
@@ -41,14 +42,19 @@ def seed_demo(data_dir: Path, snapshot: Path) -> None:
     seed = Path("/root/seed/demo")
     if snapshot.exists() or not (seed / "firsthour.sqlite").exists():
         return
-    for sub in ("images", "masks"):
-        shutil.copytree(seed / sub, data_dir / sub, dirs_exist_ok=True)
+    for sub in ("images", "masks", "videos"):
+        if (seed / sub).exists():
+            shutil.copytree(seed / sub, data_dir / sub, dirs_exist_ok=True)
     shutil.copy(seed / "firsthour.sqlite", snapshot)
     c = sqlite3.connect(snapshot)
     for col, sub in (("path", "images"), ("overlay_path", "masks")):
         for image_id, value in c.execute(f"SELECT id, {col} FROM images").fetchall():
             if value:
                 c.execute(f"UPDATE images SET {col} = ? WHERE id = ?", (str(data_dir / sub / Path(value).name), image_id))
+    for col in ("path", "overlay_path"):
+        for video_id, value in c.execute(f"SELECT id, {col} FROM videos").fetchall():
+            if value:
+                c.execute(f"UPDATE videos SET {col} = ? WHERE id = ?", (str(data_dir / "videos" / Path(value).name), video_id))
     c.execute("UPDATE incidents SET mode = 'demo_readonly'")
     c.commit()
     c.close()

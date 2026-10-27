@@ -232,6 +232,9 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
             "reports": [dict(r) for r in db.query(
                 "SELECT id, lat, lon, status, transcript, report_json, model, audio_seconds, error, created_at "
                 "FROM field_reports WHERE incident_id = ? ORDER BY id", (incident_id,))],
+            "videos": [{k: v[k] for k in ("id", "original_name", "status", "frames", "seconds",
+                        "summary_json", "keyframes_json", "credit", "error", "created_at")} | {"has_overlay": bool(v["overlay_path"])}
+                       for v in db.query("SELECT * FROM videos WHERE incident_id = ? ORDER BY created_at", (incident_id,))],
             "blockages": [dict(b) for b in db.query(
                 "SELECT * FROM blockages WHERE incident_id = ? AND active = 1 ORDER BY id", (incident_id,))],
         }
@@ -278,6 +281,41 @@ def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow
             db.emit(c, incident_id, "report_updated", {"id": rid, "status": "processing"})
         app.state.agent_tasks.add(asyncio.create_task(process_report(rid, wav)))
         return {"id": rid}
+
+    # ------------------------------------------------------------------ drone clips (SAM 3.1 video tracking)
+    @app.post("/api/incidents/{incident_id}/videos")
+    async def upload_video(incident_id: str, request: Request, video: UploadFile = File(...),
+                           start: float = Form(0.0)) -> dict:
+        from . import video as vid
+        incident_for(incident_id, request, write=True)
+        data = await video.read(vid.MAX_UPLOAD_BYTES + 1)
+        if len(data) > vid.MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "video too large (max 60 MB)")
+        try:
+            video_id, info = await asyncio.to_thread(vid.register, db, pipe.s, incident_id, data,
+                                                     video.filename or "clip.mp4", max(0.0, start))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        app.state.agent_tasks.add(asyncio.create_task(vid.process(pipe, video_id, on_keyframes=worker.wake.set)))
+        return {"id": video_id, **info}
+
+    def video_for(video_id: str, request: Request) -> Any:
+        row = db.one("SELECT * FROM videos WHERE id = ?", (video_id,))
+        if row is None:
+            raise HTTPException(404, "video not found")
+        incident_for(row["incident_id"], request, write=False)
+        return row
+
+    @app.get("/api/videos/{video_id}/clip")
+    def video_clip(video_id: str, request: Request) -> FileResponse:
+        return FileResponse(video_for(video_id, request)["path"], media_type="video/mp4")
+
+    @app.get("/api/videos/{video_id}/overlay")
+    def video_overlay(video_id: str, request: Request) -> FileResponse:
+        row = video_for(video_id, request)
+        if not row["overlay_path"]:
+            raise HTTPException(404, "overlay not ready")
+        return FileResponse(row["overlay_path"], media_type="video/mp4")
 
     # ------------------------------------------------------------------ road blockages (human only)
     @app.post("/api/incidents/{incident_id}/blockages")

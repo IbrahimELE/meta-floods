@@ -22,8 +22,8 @@
     </div>
     <div class="counts" id="counts" aria-live="polite"></div>
     <label class="upload-btn">
-      <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple>
-      Add photos
+      <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple>
+      Add photos / drone clip
     </label>
   </header>
 
@@ -56,6 +56,8 @@
 
     <aside class="panel" id="panel">
       <div class="panel-list" id="list-view">
+        <div id="videos"></div>
+        <div id="reports"></div>
         <section class="agent-box" aria-labelledby="agent-h">
           <div class="agent-head">
             <h2 id="agent-h">Coordinator</h2>
@@ -64,7 +66,6 @@
           <p class="small muted" id="agent-status">Groups the photos into zones, checks the priorities, asks you to verify what is uncertain and writes a briefing.</p>
           <div id="review-requests"></div>
           <div id="zones"></div>
-          <div id="reports"></div>
           <div id="briefing"></div>
           <details class="agent-log" id="agent-log-wrap" hidden><summary>What the coordinator did</summary><ol id="agent-log"></ol></details>
         </section>

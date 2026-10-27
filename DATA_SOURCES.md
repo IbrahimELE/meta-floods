@@ -8,6 +8,8 @@ Only data we have the right to use. Every photo shown in the demo or the video i
 | Demo scenario "Eastern Kentucky flash floods, July 2022 (replay)" | 26 photos from LADI v2 train labels, event `CAP_-_KY_Flooding_July_2022`, selected for flooding / building damage / road damage and EXIF GPS | CC BY 4.0 | as above |
 | Map tiles | OpenStreetMap | ODbL | "© OpenStreetMap contributors" |
 | Demo scenario "Floods in Bosnia and Herzegovina, May 2014 (replay)" | 21 photos from Wikimedia Commons: 14 by Dalibor Platenik (Doboj, Prud and three without a named place), 4 by Commons user "BiH" (Zenica, 15 May 2014) | CC BY 3.0 (Platenik), CC BY-SA 3.0 ("BiH") | per photo, shown under the photo in the app; full list with links in `samples/demo_bih2014.csv` |
+| Demo scenario "Chikuma River levee breach, Nagano, 13 Oct 2019 (drone replay)" | UAV video by the Geospatial Information Authority of Japan (国土地理院), [Commons file](https://commons.wikimedia.org/wiki/File:【国土地理院】長野県長野市大字穂保付近の被害箇所２.webm), seconds 2–22, re-encoded to 5 fps / 1280 px; four keyframes extracted from it | CC BY 4.0 | "Geospatial Information Authority of Japan, CC BY 4.0", shown under the clip and each keyframe; location pinned approximately to the Hoyasu area named in the title (±1.5 km) |
+| Test recording for voice reports | synthetic speech generated with espeak-ng (no real person) | – | – |
 | Jablanica 2024 scenario | not used: Wikimedia Commons has no freely licensed photos of the 2024 Jablanica flood (checked 27 Oct 2026) | – | – |
 
 Not used: photos from news media or social networks without permission.

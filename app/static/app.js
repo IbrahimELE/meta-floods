@@ -563,8 +563,11 @@
     state.zones = snap.zones || [];
     state.blockages = snap.blockages || [];
     state.reports = snap.reports || [];
+    const videosChanged = JSON.stringify(snap.videos || []) !== JSON.stringify(state.videos || []);
+    state.videos = snap.videos || [];
     renderMap();
     renderReports();
+    if (videosChanged) renderVideos();          // do not restart a playing video on every refresh
     renderZones();
     loadAgent();
     renderList();
@@ -576,7 +579,7 @@
   function listen(after) {
     if (state.events) state.events.close();
     const es = new EventSource(`/api/incidents/${state.incident.id}/events?after=${after}`);
-    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated", "blockage_added", "blockage_removed", "report_updated",
+    for (const t of ["image_added", "image_updated", "finding_published", "finding_reviewed", "zones_updated", "blockage_added", "blockage_removed", "report_updated", "video_updated",
       "agent_started", "agent_action", "agent_finished", "briefing_written", "review_requested", "review_resolved"]) es.addEventListener(t, refreshSoon);
     state.events = es; // EventSource reconnects by itself and sends Last-Event-ID
   }
@@ -635,6 +638,7 @@
   async function upload(files) {
     if (!state.incident) return banner("Create an incident first.");
     if (state.incident.mode === "demo_readonly") return banner("This demo is read-only. Click “New incident” to analyse your own photos.");
+    for (const v of [...files].filter((f) => /^video\//.test(f.type))) uploadVideo(v);
     const list = [...files].filter((f) => /^image\//.test(f.type));
     if (!list.length) return;
     banner(`Uploading ${list.length} photo${list.length > 1 ? "s" : ""}…`);
@@ -649,6 +653,40 @@
       bad.map((r) => `${r.name}: ${r.error}`).join(" ")].filter(Boolean).join(" "));
     refresh();
   }
+  async function uploadVideo(file) {
+    banner(`Uploading drone clip “${file.name}” – the first 30 seconds are analysed.`);
+    const fd = new FormData();
+    fd.append("video", file);
+    const res = await api(`/api/incidents/${state.incident.id}/videos`, { method: "POST", body: fd });
+    if (res) { banner(`Clip received (${res.duration.toFixed(0)} s). SAM 3.1 is tracking houses, roads and flood water…`); refresh(); }
+  }
+
+  // ------------------------------------------------------------------ drone clips
+  const CONCEPT_PLURAL = { house: ["house", "houses"], road: ["road", "roads"], "flood water": ["flood-water area", "flood-water areas"] };
+  function renderVideos() {
+    const vids = state.videos || [];
+    $("videos").innerHTML = vids.length ? `<h3>Drone clips (${vids.length})</h3>` + vids.map((v) => {
+      const sum = JSON.parse(v.summary_json || "{}");
+      const keys = JSON.parse(v.keyframes_json || "[]");
+      const status = { queued: "waiting", tracking: "SAM 3.1 is tracking objects through the clip…", rendering: "Tracked. Drawing the tracks into the clip…",
+        failed: `Failed: ${esc(v.error || "")}`, done: "" }[v.status];
+      const counts = Object.entries(sum).filter(([, s]) => s.tracked).map(([c, s]) => {
+        const [one, many] = CONCEPT_PLURAL[c] || [c, c];
+        return `<li><b>${s.capped ? "at least " : ""}${s.tracked}</b> ${s.tracked === 1 ? one : many}${s.capped ? ` <span class="muted">(SAM tracks up to 16 per frame)</span>` : ""}</li>`;
+      }).join("");
+      return `<div class="clip ${v.status}">
+        <div class="clip-title">${esc(v.original_name)} · ${v.seconds ? v.seconds.toFixed(0) + " s" : ""}</div>
+        ${v.has_overlay ? `<video src="/api/videos/${v.id}/overlay" controls muted loop playsinline preload="metadata"></video>`
+          : `<video src="/api/videos/${v.id}/clip" muted playsinline preload="metadata"></video>`}
+        ${status ? `<p class="small">${status}</p>` : ""}
+        ${counts ? `<p class="small">Tracked through the clip – each object counted once, not once per frame:</p><ul class="clip-counts">${counts}</ul>` : ""}
+        ${keys.length ? `<p class="small">Keyframes sent for assessment: ${keys.map((k) => `<a href="#" data-open="${k.image_id}">${k.seconds.toFixed(1)} s</a>`).join(", ")}</p>` : ""}
+        ${v.credit ? `<p class="credit">Video: ${esc(v.credit)}</p>` : ""}
+      </div>`;
+    }).join("") : "";
+    for (const el of $("videos").querySelectorAll("[data-open]")) el.onclick = (ev) => { ev.preventDefault(); openDetail(el.dataset.open); };
+  }
+
   $("file-input").onchange = (e) => { upload(e.target.files); e.target.value = ""; };
   const dz = $("drop-zone");
   dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragging"); });

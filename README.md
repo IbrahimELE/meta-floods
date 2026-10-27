@@ -27,6 +27,10 @@ photos ──► SAM 3.1: one request per concept (road, building, house, bridge
            "please check" requests, briefing in English and Bosnian
        ──► live map (SSE): triage-tag markers, uncertainty circles, evidence panel, confirm/reject, pin
 
+drone clip ──► SAM 3.1 video tracking (house, road, flood water): every object keeps one id through the
+       clip, so it is counted once, not once per frame ──► the fewest keyframes that show every tracked house
+       go through the photo pipeline above ──► the clip is shown with the tracks drawn in
+
 responder on the ground ──► voice report at a map point ──► Muse Voice Transcribe ──► Muse Spark Open
        (Baseten) extracts road status / people needing help / hazards ──► shown as a HUMAN observation,
        raises the priority of the zone it falls in, and the coordinator agent sees it
@@ -38,7 +42,7 @@ responder ──► marks a road segment blocked (exact OpenStreetMap edge) ─�
 
 | Model | What it does here |
 |---|---|
-| `sam-3.1` (Meta Model API) | Segments every building, road, bridge and flood-water area. The numbered masks are what Muse Spark talks about, so every finding points at a concrete pixel region. |
+| `sam-3.1` (Meta Model API) | Segments every building, road, bridge and flood-water area. The numbered masks are what Muse Spark talks about, so every finding points at a concrete pixel region. On drone clips it **tracks** houses, roads and flood water across frames, which decides which frames are worth assessing. |
 | `muse-spark-1.3` (Meta Model API) | Per-object damage (xBD scale) and passability, grounded in SAM's numbered masks; the coordinator agent with function tools; bilingual briefing. |
 | Muse Spark Open (Baseten) | Turns a transcribed voice report into a structured observation (~3 s); also an alternative photo-assessment backend (`ASSESS_BACKEND=baseten`), evaluated head-to-head below. |
 | `muse-voice-transcribe-1.0` (Meta Model API) | Transcribes field reports recorded in the browser, biased toward the incident's place names. |
@@ -59,7 +63,8 @@ responder ──► marks a road segment blocked (exact OpenStreetMap edge) ─�
 |---|---|
 | **E1** image labels vs LADI v2 human labels, 100 test photos (class-enriched, flight-disjoint) | Muse Spark 1.3 macro-F1 **0.79** (Open: 0.72); 100 % valid outputs; recall 0.88–1.00 on flooding, building damage, debris; weak on subtle road damage (recall 0.17) |
 | **E2** blinded geolocation, 40 photos, metadata removed | model answers only 5/40 (good: it abstains); 5 % of all attempts within 5 km → AI location stays **off**, responders pin |
-| **E3** speed, 26 photos uploaded at once (2 CPU cores) | first photo on the map in **19 s**, whole batch in **150 s** |
+| **E3** speed, 26 photos uploaded at once (2 CPU cores) | first photo on the map in **15 s**, whole batch in **96 s** |
+| Drone clip (20 s) / voice report | tracked counts after **16 s** / report on the map after **7 s** |
 | Tests | 26 automated tests (pipeline states, retries, budget, durability, access, agent validation) |
 
 ## Run it
@@ -91,6 +96,8 @@ rounds of external review: [`PLAN.md`](PLAN.md).
 - People are only reported as "visible / may need help / cannot tell" – no faces, no identification.
 - Photos are sent to the Meta Model API (and Baseten if selected). While free credits are used, Meta may use
   content for product improvement – use only photos you may share.
+- SAM 3.1 video tracks at most 16 objects per frame, so a clip's house count is shown as "at least N" when a
+  frame hits that limit. Clips are cut to 30 s at 5 fps (billing is per frame).
 - Muse Voice Transcribe does not list Bosnian/Croatian/Serbian among its 25 languages, so field reports
   should be spoken in English for now; place names are passed as recognition keywords.
 - Evaluation labels are image-level; per-object damage was spot-checked, not benchmarked.
@@ -99,8 +106,9 @@ rounds of external review: [`PLAN.md`](PLAN.md).
 ## Data
 
 Demo scenarios: May 2014 floods in Bosnia and Herzegovina (Wikimedia Commons photos by Dalibor Platenik,
-CC BY 3.0, and Commons user "BiH", CC BY-SA 3.0 – credited under each photo) and the July 2022 Kentucky floods
-(LADI v2, MIT Lincoln Laboratory / Civil Air Patrol, CC BY 4.0). Details: [`DATA_SOURCES.md`](DATA_SOURCES.md).
+CC BY 3.0, and Commons user "BiH", CC BY-SA 3.0 – credited under each photo), a drone clip of the 2019 Chikuma
+River levee breach in Nagano (Geospatial Information Authority of Japan, CC BY 4.0) and the July 2022 Kentucky
+floods (LADI v2, MIT Lincoln Laboratory / Civil Air Patrol, CC BY 4.0). Details: [`DATA_SOURCES.md`](DATA_SOURCES.md).
 Map tiles © OpenStreetMap contributors.
 
 ## License

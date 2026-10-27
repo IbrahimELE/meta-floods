@@ -1,13 +1,14 @@
 {
-  "date": "2026-10-27T19:56:41",
+  "date": "2026-10-27T23:13:45",
   "images": 26,
   "finished": 26,
-  "upload_request_s": 0.8,
-  "first_image_on_map_s": 19.3,
-  "p50_s": 79.6,
-  "p95_s": 137.4,
-  "whole_batch_s": 150.4,
+  "upload_request_s": 1.6,
+  "first_image_on_map_s": 14.8,
+  "p50_s": 49.6,
+  "p95_s": 88.1,
+  "whole_batch_s": 95.6,
   "workers": "4 images in parallel, 5 SAM concepts per image in parallel, mask decoding in a process pool",
   "note": "Upload \u2192 processing_state done, measured by polling /snapshot every 1 s; includes queueing behind other images of the batch.",
-  "machine": "2 CPU cores (dev container)"
+  "machine": "2 CPU cores (dev container)",
+  "change": "parser's validation decode of each mask is cached and reused (masks decoded once, not twice)"
 }

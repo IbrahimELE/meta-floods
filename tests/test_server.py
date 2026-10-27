@@ -24,7 +24,10 @@ def server(tmp_path):
     s = replace(Settings(), data_dir=tmp_path, retry_delays=(0.0,), budget_images=100, budget_api_calls=1000)
     pipe = Pipeline(Database(s.db_path), s, FakeApi())
     app = create_app(pipe, start_worker=False, allow_dev=True)
-    return TestClient(app), pipe
+    # as a context manager the client keeps one event loop running, so background
+    # tasks (voice reports, drone clips) keep making progress between requests
+    with TestClient(app) as client:
+        yield client, pipe
 
 
 def process(pipe):
@@ -174,7 +177,7 @@ def test_voice_report_flow(server, monkeypatch):
     ok = client.post(f"/api/incidents/{inc}/voice", data={"lat": 43.6, "lon": 17.9}, files={"audio": ("r.wav", _wav(), "audio/wav")})
     assert ok.status_code == 200
     import time
-    for _ in range(50):
+    for _ in range(200):
         reps = client.get(f"/api/incidents/{inc}/snapshot").json()["reports"]
         if reps and reps[0]["status"] != "processing":
             break
@@ -198,3 +201,46 @@ def test_voice_reports_raise_zone(server, monkeypatch):
                   (inc, json.dumps({"summary": "s", "road_status": "blocked", "people_need_help": True, "hazards": [], "place_mentioned": ""})))
     z = client.get(f"/api/incidents/{inc}/snapshot").json()["zones"][0]
     assert z["confirmed_blockage"] is True and z["base_points"] >= 4
+
+
+def _clip(tmp_path) -> bytes:
+    import subprocess
+    out = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x334:rate=10:duration=2",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)], check=True)
+    return out.read_bytes()
+
+
+def test_drone_clip_tracking(server, monkeypatch, tmp_path):
+    """Clip → normalised → SAM tracks per concept (faked) → keyframes into the photo pipeline → overlay video."""
+    import time
+    import app.video as video
+    client, pipe = server
+
+    def fake_track(meta, data, concept, timeout=240):
+        if concept != "house":
+            return ""
+        from tests.test_pipeline import SAM_TWO
+        first, second = SAM_TWO.strip()[4:].split(",1<|box")       # object 0 / object 1 records
+        lines = [f"<{f}f>{first}" + (f",1<|box{second}" if f >= 5 else "") for f in range(10)]
+        return "\n".join(lines) + "\n"
+    monkeypatch.setattr(video, "track", fake_track)
+    monkeypatch.setattr(pipe.api, "meta", object(), raising=False)
+    inc = client.post("/api/incidents", json={"name": "t"}).json()["id"]
+    bad = client.post(f"/api/incidents/{inc}/videos", files={"video": ("x.mp4", b"not a video", "video/mp4")})
+    assert bad.status_code == 400
+    res = client.post(f"/api/incidents/{inc}/videos", files={"video": ("drone.mp4", _clip(tmp_path), "video/mp4")})
+    assert res.status_code == 200, res.text
+    assert res.json()["frames"] == 10                       # 2 s at 5 fps
+    for _ in range(300):
+        v = client.get(f"/api/incidents/{inc}/snapshot").json()["videos"][0]
+        if v["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert v["status"] == "done", v["error"]
+    assert json.loads(v["summary_json"])["house"] == {"tracked": 2, "max_in_one_frame": 2, "capped": False}
+    keyframes = json.loads(v["keyframes_json"])
+    assert [k["frame"] for k in keyframes] == [5]             # 2 s clip → one keyframe, the first showing both houses
+    snap = client.get(f"/api/incidents/{inc}/snapshot").json()
+    assert {k["image_id"] for k in keyframes} <= {i["id"] for i in snap["images"]}
+    assert client.get(f"/api/videos/{v['id']}/overlay").status_code == 200
