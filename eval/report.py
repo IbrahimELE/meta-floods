@@ -57,7 +57,7 @@ def main():
         w=csv.DictWriter(f,fieldnames=list(out[0])); w.writeheader(); w.writerows(out)
     cost=Ledger().summary(); save_json(ROOT/'eval/cost_summary.json',cost)
     lines += ['### Cost and reproducibility', '',
-              f"Total usage-based estimate plus conservative reservations for unresolved calls: **${cost['estimated_or_reserved_usd']:.3f}**, shared stop threshold $20. Not a provider invoice. Details: `eval/cost_summary.json`.",
+              f"Total usage-based estimate plus conservative reservations for unresolved calls: **${cost['estimated_or_reserved_usd']:.3f}**, shared stop threshold $20. Not a provider invoice. ",
               'Rates checked 2026-10-27: [Meta pricing](https://dev.meta.ai/docs/pricing-rate-limits), [Baseten Muse Spark Open](https://www.baseten.co/library/muse-spark-open/). SAM $0.0025/image request; input/output $1.25/$4.25 per million tokens, ignoring cache discounts; search $0.0025/query. Request output caps: E1 12,000 tokens, E2 6,000 tokens and at most 5 tool calls. Reservations remain charged after uncertain failures.', '',
               'Run instructions: `eval/README.md`. Raw responses, database, source-label CSV copies, resized EXIF images, blinded images and SAM cache remain under ignored `data/eval/`; credentials are never exported. `eval/NOTES_FOR_CLAUDE.md` records integration notes.', '']
     section='\n'.join(lines)
