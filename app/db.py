@@ -6,6 +6,7 @@ that the web layer streams over SSE."""
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -171,6 +172,17 @@ CREATE INDEX IF NOT EXISTS idx_events_incident ON events(incident_id, seq);
 """
 
 
+def restore(snapshot: Path, path: Path) -> None:
+    """Start from the last durable snapshot."""
+    source = sqlite3.connect(snapshot)
+    target = sqlite3.connect(path)
+    try:
+        source.backup(target)
+    finally:
+        source.close()
+        target.close()
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -180,9 +192,17 @@ class BudgetExceeded(Exception):
 
 
 class Database:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, snapshot: Path | None = None, on_snapshot=None):
+        """`snapshot`: after every committed transaction a consistent copy is written
+        there (SQLite backup API → temp file → atomic rename) and `on_snapshot()` is
+        called (Modal: volume.commit()). Only then does tx() return, so the caller
+        reports success only for durable changes (PLAN 5.5)."""
         path.parent.mkdir(parents=True, exist_ok=True)
+        if snapshot is not None and snapshot.exists() and not path.exists():
+            restore(snapshot, path)
         self.path = path
+        self.snapshot = snapshot
+        self.on_snapshot = on_snapshot
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -212,8 +232,21 @@ class Database:
                 raise
             self.after_commit()
 
-    def after_commit(self) -> None:  # replaced in deployment (Modal Volume)
-        pass
+    def after_commit(self) -> None:
+        """Runs under the write lock, so snapshots never interleave (PLAN R3-2).
+        Any failure propagates: the caller must not report success."""
+        if self.snapshot is None:
+            return
+        self.snapshot.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.snapshot.with_suffix(".tmp")
+        target = sqlite3.connect(tmp)
+        try:
+            self._conn.backup(target)
+        finally:
+            target.close()
+        os.replace(tmp, self.snapshot)
+        if self.on_snapshot:
+            self.on_snapshot()
 
     def query(self, sql: str, args: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:

@@ -85,9 +85,9 @@ class ZonePriorityIn(BaseModel):
 
 # ----------------------------------------------------------------------------- app
 def create_app(pipe: Pipeline | None = None, *, start_worker: bool = True, allow_dev: bool | None = None,
-               agent_factory=None) -> FastAPI:
+               agent_factory=None, on_snapshot=None) -> FastAPI:
     if pipe is None:
-        db = Database(settings.db_path)
+        db = Database(settings.db_path, Path(settings.snapshot_path) if settings.snapshot_path else None, on_snapshot)
         api = ModelApi(settings, os.environ.get("MODEL_API_KEY"), os.environ.get("BASETEN_API_KEY"))
         pipe = Pipeline(db, settings, api)
     if allow_dev is None:

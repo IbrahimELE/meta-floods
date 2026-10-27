@@ -55,9 +55,13 @@ class Settings:
     budget_api_calls: int = _int("FH_BUDGET_API_CALLS", 1500)
     budget_agent_runs: int = _int("FH_BUDGET_AGENT_RUNS", 30)
 
+    # Durability (PLAN 5.5): working DB on local disk, consistent snapshot after every commit
+    db_override: str | None = field(default_factory=lambda: os.environ.get("FH_DB_PATH"))
+    snapshot_path: str | None = field(default_factory=lambda: os.environ.get("FH_SNAPSHOT_PATH"))
+
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "firsthour.sqlite"
+        return Path(self.db_override) if self.db_override else self.data_dir / "firsthour.sqlite"
 
     @property
     def images_dir(self) -> Path:

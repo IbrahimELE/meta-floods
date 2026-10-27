@@ -91,3 +91,31 @@ def test_sandbox_upload_limit(server):
     inc = client.post("/api/sandbox", json={"name": "s"}).json()["id"]
     files = [("files", (f"{i}.jpg", jpeg(color=(i, i, i)), "image/jpeg")) for i in range(6)]
     assert client.post(f"/api/incidents/{inc}/images", files=files).status_code == 413
+
+
+def test_t10_durable_after_restart(tmp_path):
+    """Snapshot after every commit: a confirmation and a budget reservation survive a
+    restart that starts from the snapshot only (local working DB lost)."""
+    snap = tmp_path / "vol" / "db.sqlite"
+    commits = []
+    s = replace(Settings(), data_dir=tmp_path / "work", retry_delays=(0.0,), budget_images=100, budget_api_calls=1000)
+    db = Database(tmp_path / "local1.sqlite", snap, lambda: commits.append(1))
+    pipe = Pipeline(db, s, FakeApi())
+    inc = db.create_incident("t")
+    image_id = pipe.ingest(inc, jpeg(gps=None), "a.jpg")
+    pipe.set_pin(image_id, 43.6, 17.9)
+    db.reserve("api_call", 1000)
+    assert commits, "volume commit must be called after transactions"
+
+    restarted = Database(tmp_path / "local2.sqlite", snap)          # fresh container, restore from snapshot
+    assert restarted.image(image_id)["location_state"] == "confirmed"
+    assert restarted.one("SELECT api_calls_reserved n FROM budget")["n"] == 1
+    assert restarted.one("SELECT COUNT(*) n FROM reviews WHERE target_type = 'location'")["n"] == 1
+
+
+def test_failed_snapshot_is_an_error(tmp_path):
+    def broken():
+        raise OSError("volume unavailable")
+    db = Database(tmp_path / "l.sqlite", tmp_path / "v" / "db.sqlite", broken)
+    with pytest.raises(OSError):
+        db.create_incident("x")
