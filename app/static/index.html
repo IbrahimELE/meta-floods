@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FirstHour</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">FirstHour</span>
+    </div>
+    <div class="incident">
+      <select id="incident-select" aria-label="Incident"></select>
+      <button id="new-incident" class="ghost" type="button">New incident</button>
+    </div>
+    <div class="counts" id="counts" aria-live="polite"></div>
+    <label class="upload-btn">
+      <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+      Add photos
+    </label>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main class="layout">
+    <section class="map-wrap" id="drop-zone">
+      <div id="map" aria-label="Map of findings"></div>
+      <div class="drop-hint" id="drop-hint">Drop photos to add them to this incident</div>
+      <div class="pin-hint" id="pin-hint" hidden>
+        <span id="pin-hint-text">Click the map where this photo was taken</span>
+        <button class="ghost" id="pin-cancel" type="button">Cancel</button>
+      </div>
+      <div class="legend" aria-label="Legend">
+        <span><i class="tag p5"></i>5 urgent</span>
+        <span><i class="tag p4"></i>4</span>
+        <span><i class="tag p3"></i>3</span>
+        <span><i class="tag p2"></i>2</span>
+        <span><i class="tag p1"></i>1 low</span>
+        <span><i class="tag unassessed"></i>not assessed</span>
+        <span><i class="ring"></i>location uncertainty</span>
+      </div>
+    </section>
+
+    <aside class="panel" id="panel">
+      <div class="panel-list" id="list-view">
+        <h2>Where to go first</h2>
+        <p class="muted small">Priority is computed from the findings with a fixed rule. Click a row for the evidence.</p>
+        <div id="check-list"></div>
+        <ol class="rank" id="rank"></ol>
+        <p class="empty" id="empty-state">No photos yet. Add photos from citizens, drones or social media – each one appears on the map as soon as it is assessed.</p>
+      </div>
+      <div class="panel-detail" id="detail-view" hidden></div>
+    </aside>
+  </main>
+
+  <footer class="tray" id="tray" hidden>
+    <h3>Needs a location <span class="muted" id="tray-count"></span></h3>
+    <div class="tray-items" id="tray-items"></div>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
