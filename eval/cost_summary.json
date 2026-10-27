@@ -1,0 +1,27 @@
+{
+  "estimated_or_reserved_usd": 6.59153675,
+  "by_kind": {
+    "e1_baseten": {
+      "calls": 103,
+      "usd": 2.61951875,
+      "uncertain_calls": 1
+    },
+    "e1_meta": {
+      "calls": 100,
+      "usd": 1.53813325,
+      "uncertain_calls": 0
+    },
+    "e2_meta": {
+      "calls": 40,
+      "usd": 1.18388475,
+      "uncertain_calls": 0
+    },
+    "sam": {
+      "calls": 500,
+      "usd": 1.25,
+      "uncertain_calls": 0
+    }
+  },
+  "limit_usd": 20,
+  "note": "Estimate from usage, not provider invoice; unresolved calls retain conservative reservations."
+}
