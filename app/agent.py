@@ -52,7 +52,9 @@ TOOLS = [
     {"type": "function", "name": "write_briefing",
      "description": "Write the situation briefing for the incident commander. The server adds the ranked zone table, "
                     "confirmed blockages and the 'not verified' list from the database; you write the headline and a short "
-                    "plain-language summary (what to do first and why, what is uncertain). Call once per language at the end.",
+                    "plain-language summary (what to do first and why, what is uncertain). Refer to zones by their label "
+                    "(e.g. 'Zone 3') and to places by what is visible – never include internal ids or hashes. "
+                    "Call once per language at the end.",
      "parameters": {"type": "object", "properties": {
          "language": {"type": "string", "enum": ["en", "bs"]},
          "headline": {"type": "string"}, "summary": {"type": "string"}},
@@ -122,12 +124,13 @@ class Agent:
         by_id = {i["id"]: i for i in images}
         en = language == "en"
         lines = [summary.strip(), "", "## " + ("Zones by priority" if en else "Zone po prioritetu")]
+        label = (lambda z: z["label"]) if en else (lambda z: z["label"].replace("Zone", "Zona"))
         for z in [z for z in zones if z["status"] == "assessed"][:5]:
             imgs = [by_id[i] for i in z["image_ids"]]
             dmg = sum(i["summary"]["damage"]["destroyed"] + i["summary"]["damage"]["major"] for i in imgs)
             note = f" (agent {z['agent_delta']:+d}: {z['agent_reason']})" if z["agent_delta"] else ""
             note += " – " + ("set by responder" if en else "postavio spasilac") if z["human_priority"] else ""
-            lines.append(f"- {z['label']}: {'priority' if en else 'prioritet'} {z['priority']} – {len(imgs)} "
+            lines.append(f"- {label(z)}: {'priority' if en else 'prioritet'} {z['priority']} – {len(imgs)} "
                          f"{'photos' if en else 'fotografija'}, {dmg} {'buildings major/destroyed' if en else 'zgrada teško oštećeno/uništeno'}{note}")
         blocked = [i for i in images if i["summary"]["roads_blocked_confirmed"]]
         lines += ["", "## " + ("Confirmed road blockages" if en else "Potvrđene blokade cesta")]
@@ -136,7 +139,7 @@ class Agent:
         no_loc = [i for i in images if i["location_state"] == "needs_pin"]
         unknown_age = [i for i in images if i["published"] and i["age"] == "unknown"]
         lines += ["", "## " + ("Not verified" if en else "Nije provjereno")]
-        lines += [f"- {z['label']}: " + ("could not be assessed from the photos" if en else "nije se moglo procijeniti s fotografija") for z in unassessed]
+        lines += [f"- {label(z)}: " + ("could not be assessed from the photos" if en else "nije se moglo procijeniti s fotografija") for z in unassessed]
         if no_loc:
             lines.append(f"- {len(no_loc)} " + ("photos without a location (not on the map)" if en else "fotografija bez lokacije (nisu na mapi)"))
         if unknown_age:
@@ -193,9 +196,11 @@ class Agent:
         started = time.monotonic()
         status, error, steps = "done", None, 0
         try:
-            response = self.call_model(instructions=INSTRUCTIONS, tools=TOOLS,
-                                       input=[{"type": "message", "role": "user",
-                                               "content": [{"type": "input_text", "text": "Assess the current situation and prepare the briefing."}]}])
+            # The full conversation is sent every turn instead of previous_response_id:
+            # the API sometimes answered "referenced response not found or expired".
+            history: list[dict] = [{"type": "message", "role": "user",
+                                    "content": [{"type": "input_text", "text": "Assess the current situation and prepare the briefing."}]}]
+            response = self.call_model(instructions=INSTRUCTIONS, tools=TOOLS, input=history)
             while True:
                 calls = [i for i in response.output if getattr(i, "type", "") == "function_call"]
                 if not calls:
@@ -219,7 +224,10 @@ class Agent:
                         payload = {"ok": False, "rejected": "arguments were not valid JSON"}
                     outputs.append({"type": "function_call_output", "call_id": call.call_id,
                                     "output": json.dumps(payload, default=str)[:60000]})
-                response = self.call_model(previous_response_id=response.id, input=outputs, tools=TOOLS)
+                history += [{"type": "function_call", "call_id": c.call_id, "name": c.name, "arguments": c.arguments or "{}"}
+                            for c in calls]
+                history += outputs
+                response = self.call_model(instructions=INSTRUCTIONS, tools=TOOLS, input=history)
         except Exception as exc:  # noqa: BLE001 – a failed run must be visible, not crash the server
             status, error = "failed", f"{type(exc).__name__}: {exc}"[:500]
         with self.db.tx() as c:

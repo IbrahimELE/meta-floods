@@ -122,7 +122,8 @@ def test_agent_run_logs_and_rejects(world):
     assert "Not verified" in briefing["body"] and "AI estimates" in briefing["body"]
     assert db.one("SELECT COUNT(*) n FROM review_requests WHERE incident_id = ?", (inc,))["n"] == 1
     # the rejection reason reached the model
-    sent = json.loads(model.seen[2]["input"][1]["output"])
+    outputs = [json.loads(i["output"]) for i in model.seen[-1]["input"] if i.get("type") == "function_call_output"]
+    sent = next(o for o in outputs if not o["ok"])
     assert sent["ok"] is False and "delta" in sent["rejected"]
 
 

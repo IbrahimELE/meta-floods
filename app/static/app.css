@@ -221,8 +221,15 @@ button:focus-visible, select:focus-visible, .upload-btn:focus-within, .rank li:f
 .req a { color: var(--signal); cursor: pointer; text-decoration: underline; }
 .briefing { background: var(--paper); border-radius: var(--r-m); padding: 10px 12px; margin-top: 10px; }
 .briefing h3 { margin: 0 0 4px; }
-.briefing pre { white-space: pre-wrap; font: 14px/1.45 var(--font-body); margin: 6px 0 0; }
+.brief-body { font-size: 14px; }
+.brief-body p { margin: 6px 0; }
+.brief-body h4 { font: 600 15px var(--font-ui); margin: 12px 0 2px; }
+.brief-body ul { margin: 2px 0; padding-left: 18px; }
 .briefing .stale { color: var(--p4); font-size: 13px; }
 .agent-log { margin-top: 10px; font-size: 13px; }
 .agent-log ol { padding-left: 18px; margin: 6px 0; }
 .agent-log li.rejected { color: var(--p5); }
+
+/* read-only demo: show everything, hide what would change it */
+body.readonly .review, body.readonly select[data-zone], body.readonly .zone label,
+body.readonly #run-agent, body.readonly .resolve-btn, body.readonly #pin-this { display: none; }

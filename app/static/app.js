@@ -23,6 +23,7 @@
   }).addTo(map);
   const zoneLayer = L.layerGroup().addTo(map);
   const layer = L.layerGroup().addTo(map);
+  map.on("movestart", () => { if (!state.programmaticMove) state.userMoved = true; });
   const PRIO_COLOR = { 5: "#c8102e", 4: "#e8590c", 3: "#e0a800", 2: "#2b8a3e", 1: "#7b8a97" };
 
   const prioClass = (img) => (img.priority ? `p${img.priority}` : "unassessed");
@@ -62,9 +63,11 @@
       marker(img).addTo(layer);
       pts.push([loc.lat, loc.lon]);
     }
-    if (pts.length && !state.fitted) {
+    if (pts.length && !state.userMoved && pts.length !== state.fittedCount) {
+      state.programmaticMove = true;
       map.fitBounds(pts, { padding: [60, 60], maxZoom: 14 });
-      state.fitted = true;
+      state.fittedCount = pts.length;
+      setTimeout(() => { state.programmaticMove = false; }, 600);
     }
   }
 
@@ -252,12 +255,12 @@
       const dmg = imgs.reduce((n, i) => n + (i.summary?.damage?.destroyed || 0) + (i.summary?.damage?.major || 0), 0);
       const delta = z.agent_delta ? `<div class="agent-delta">Coordinator ${z.agent_delta > 0 ? "raised" : "lowered"} by 1: ${esc(z.agent_reason)}</div>`
         : z.agent_delta_status ? `<div class="agent-delta expired">Coordinator correction ${esc(z.agent_delta_status)}</div>` : "";
-      const opts = ["", 5, 4, 3, 2, 1].map((p) => `<option value="${p}" ${z.human_priority === p || (p === "" && !z.human_priority) ? "selected" : ""}>${p === "" ? "rule" : "set " + p}</option>`).join("");
+      const opts = ["", 5, 4, 3, 2, 1].map((p) => `<option value="${p}" ${z.human_priority === p || (p === "" && !z.human_priority) ? "selected" : ""}>${p === "" ? "automatic" : "set " + p}</option>`).join("");
       return `<div class="zone ${z.status === "unassessed" ? "zone-unassessed" : ""}">
         <span class="prio ${z.priority ? "p" + z.priority : "unassessed"}" style="width:30px;height:30px;border-radius:6px 6px 6px 0;display:grid;place-items:center;color:#fff;font:700 17px var(--font-ui)">${z.priority ?? "?"}</span>
         <div><div class="title">${esc(z.label)}</div>
           <div class="why">${imgs.length} photo${imgs.length === 1 ? "" : "s"}, ${dmg} buildings with major damage or destroyed${z.confirmed_blockage ? ", confirmed road blockage" : ""}</div>
-          <div class="why">rule: ${z.base_priority ?? "not assessed"}${z.human_priority ? ` · set by you: ${z.human_priority} (locked)` : ""}</div>${delta}</div>
+          <div class="why">from findings: ${z.base_priority ?? "not assessed"}${z.human_priority ? ` · set by you: ${z.human_priority} (locked)` : ""}</div>${delta}</div>
         <label class="small"><span class="muted">Priority</span><br><select data-zone="${z.id}" aria-label="Set priority for ${esc(z.label)}">${opts}</select></label>
       </div>`;
     }).join("");
@@ -267,6 +270,19 @@
         refresh();
       };
     }
+  }
+
+  function mdLite(text) {
+    const out = [];
+    let list = false;
+    for (const line of text.split("\n")) {
+      if (line.startsWith("- ")) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${esc(line.slice(2))}</li>`); continue; }
+      if (list) { out.push("</ul>"); list = false; }
+      if (line.startsWith("## ")) out.push(`<h4>${esc(line.slice(3))}</h4>`);
+      else if (line.trim()) out.push(`<p>${esc(line)}</p>`);
+    }
+    if (list) out.push("</ul>");
+    return out.join("");
   }
 
   let agentBusy = false;
@@ -285,7 +301,7 @@
       a.review_requests.map((r) => {
         const ids = JSON.parse(r.target_ids_json);
         const links = r.target_type === "image" ? ids.map((id) => `<a data-open="${id}">${esc(state.images.get(id)?.original_name || id)}</a>`).join(", ") : `${r.target_type} ${ids.join(", ")}`;
-        return `<div class="req">${esc(r.question)}<div class="small">${links}</div><button class="ghost" type="button" data-resolve="${r.id}">Done</button></div>`;
+        return `<div class="req">${esc(r.question)}<div class="small">${links}</div><button class="ghost resolve-btn" type="button" data-resolve="${r.id}">Done</button></div>`;
       }).join("") : "";
     for (const el of document.querySelectorAll("[data-open]")) el.onclick = () => openDetail(el.dataset.open);
     for (const el of document.querySelectorAll("[data-resolve]")) el.onclick = async () => { await api(`/api/review-requests/${el.dataset.resolve}/resolve`, { method: "POST" }); loadAgent(); };
@@ -295,7 +311,7 @@
     $("briefing").innerHTML = b ? `<div class="briefing">
         <div class="toggle" role="group" aria-label="Briefing language">${a.briefings.map((x) => `<button type="button" data-lang="${x.language}" aria-pressed="${x.language === b.language}">${x.language === "bs" ? "Bosanski" : "English"}</button>`).join("")}</div>
         <h3>${esc(b.headline)}</h3>${b.stale ? `<div class="stale">The situation changed since this briefing – run the coordinator again.</div>` : ""}
-        <pre>${esc(b.body)}</pre></div>` : "";
+        <div class="brief-body">${mdLite(b.body)}</div></div>` : "";
     for (const el of document.querySelectorAll("[data-lang]")) el.onclick = () => { state.briefLang = el.dataset.lang; loadAgent(); };
 
     $("agent-log-wrap").hidden = !a.actions.length;
@@ -352,18 +368,23 @@
     state.events = es; // EventSource reconnects by itself and sends Last-Event-ID
   }
 
+  let bannerTimer = null;
   function banner(text, kind = "") {
     const b = $("banner");
     b.className = `banner ${kind}`;
     b.textContent = text;
     b.hidden = !text;
+    clearTimeout(bannerTimer);
+    if (text && !kind) bannerTimer = setTimeout(() => { if (b.textContent === text) b.hidden = true; }, 10000);
   }
 
   async function selectIncident(id) {
     const snap = await api(`/api/incidents/${id}/snapshot`);
     if (!snap) return;
     state.incident = snap.incident;
-    state.fitted = false;
+    state.userMoved = false;
+    state.fittedCount = 0;
+    document.body.classList.toggle("readonly", snap.incident.mode === "demo_readonly");
     closeDetail();
     history.replaceState(null, "", `?incident=${id}`);
     if (snap.incident.as_of) banner(`Historical scenario – situation as of ${snap.incident.as_of.replace("T", " ")}. Photo ages are measured from that time.`, "historic");
@@ -396,6 +417,7 @@
   // ------------------------------------------------------------------ upload
   async function upload(files) {
     if (!state.incident) return banner("Create an incident first.");
+    if (state.incident.mode === "demo_readonly") return banner("This demo is read-only. Click “New incident” to analyse your own photos.");
     const list = [...files].filter((f) => /^image\//.test(f.type));
     if (!list.length) return;
     banner(`Uploading ${list.length} photo${list.length > 1 ? "s" : ""}…`);
