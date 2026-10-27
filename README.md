@@ -7,7 +7,7 @@ aircraft, and nobody has time to look at them. FirstHour turns that pile of phot
 map: what is damaged, which roads are cut, where to send teams first – and what still needs to be checked.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), problem statement
-**Build for Your World**. I'm from Bosnia and Herzegovina. In May 2014 floods hit the whole country; on the
+**Build for Your World**. I'm from Bosnia and Herzegovina. In May 2014 record floods hit large parts of the country; on the
 night of 3/4 October 2024 floods and landslides killed 27 people, 19 of them in the Jablanica area, and cut
 roads, bridges and the railway. In both cases the first hours were chaos.
 
